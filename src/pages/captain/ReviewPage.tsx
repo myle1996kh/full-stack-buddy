@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, Cell } from 'recharts';
 import type { MSEPattern } from '@/engine/detection/mseDetector';
 import type { PoseLabel } from '@/engine/detection/motionDetector';
+import PoseSkeletonChart from '@/components/charts/PoseSkeletonChart';
 
 const POSE_COLORS: Record<PoseLabel, string> = {
   still: 'hsl(220, 9%, 46%)',
@@ -194,6 +195,12 @@ export default function ReviewPage() {
                 </div>
               </div>
             )}
+
+            {/* Pose Skeleton Visualization */}
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1">Pose Skeleton (MediaPipe)</p>
+              <PoseSkeletonChart snapshots={pattern.motion.poseSnapshots ?? []} />
+            </div>
 
             {/* Motion level mini timeline */}
             <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
