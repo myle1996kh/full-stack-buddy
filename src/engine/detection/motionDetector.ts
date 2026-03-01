@@ -3,12 +3,25 @@
  * Works without MediaPipe — just needs camera frames drawn to a canvas.
  */
 
+export type PoseLabel = 'still' | 'subtle' | 'gesture' | 'movement' | 'active';
+
 export interface MotionFrame {
   timestamp: number;
   motionLevel: number;     // 0-1 overall motion intensity
   regionMotion: number[];  // 9 regions (3x3 grid) motion levels
   centroidX: number;       // 0-1 center of motion X
   centroidY: number;       // 0-1 center of motion Y
+  pose: PoseLabel;         // classified pose for this frame
+}
+
+export function classifyPose(motionLevel: number, regionMotion: number[]): PoseLabel {
+  if (motionLevel < 0.05) return 'still';
+  if (motionLevel < 0.15) return 'subtle';
+  // Check if motion is concentrated (gesture) vs spread (movement)
+  const activeRegions = regionMotion.filter(r => r > 0.1).length;
+  if (activeRegions <= 2 && motionLevel < 0.4) return 'gesture';
+  if (motionLevel < 0.5) return 'movement';
+  return 'active';
 }
 
 export class MotionDetector {
@@ -35,6 +48,7 @@ export class MotionDetector {
         regionMotion: new Array(9).fill(0),
         centroidX: 0.5,
         centroidY: 0.5,
+        pose: 'still' as PoseLabel,
       };
     }
 
@@ -50,6 +64,7 @@ export class MotionDetector {
       regionMotion,
       centroidX,
       centroidY,
+      pose: classifyPose(motionLevel, regionMotion),
     };
   }
 
