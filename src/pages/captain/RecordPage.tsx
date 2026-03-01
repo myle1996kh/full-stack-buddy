@@ -1,15 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Circle, Square, Activity, Volume2, Eye, Zap } from 'lucide-react';
+import { Circle, Square, Activity, Volume2, Eye, Zap, Layers } from 'lucide-react';
 import { useCamera } from '@/hooks/useCamera';
 import { useNavigate } from 'react-router-dom';
+import LandmarkOverlay from '@/components/overlay/LandmarkOverlay';
 import type { MSEFrame } from '@/engine/detection/mseDetector';
 
 export default function RecordPage() {
   const navigate = useNavigate();
   const [liveFrame, setLiveFrame] = useState<MSEFrame | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [showOverlay, setShowOverlay] = useState(true);
 
   const onFrame = useCallback((frame: MSEFrame) => {
     setLiveFrame(frame);
@@ -56,7 +58,7 @@ export default function RecordPage() {
       {/* Camera Preview */}
       <Card className="glass overflow-hidden">
         <CardContent className="p-0 relative">
-          <div className="aspect-video bg-muted/30 flex items-center justify-center">
+          <div className="aspect-video bg-muted/30 flex items-center justify-center relative">
             <video
               ref={camera.videoRef}
               className="w-full h-full object-cover"
@@ -64,6 +66,14 @@ export default function RecordPage() {
               playsInline
               style={{ transform: 'scaleX(-1)' }}
             />
+            {/* MediaPipe landmark overlay */}
+            {showOverlay && (
+              <LandmarkOverlay
+                videoRef={camera.videoRef as React.RefObject<HTMLVideoElement>}
+                active={camera.active}
+                mirrored={true}
+              />
+            )}
             {cameraError && (
               <div className="absolute inset-0 flex items-center justify-center bg-background/80 p-4">
                 <p className="text-sm text-destructive text-center">{cameraError}</p>
@@ -75,6 +85,17 @@ export default function RecordPage() {
               </div>
             )}
           </div>
+
+          {/* Overlay toggle */}
+          <button
+            onClick={() => setShowOverlay(v => !v)}
+            className={`absolute top-3 left-3 p-1.5 rounded-full backdrop-blur-sm transition-colors ${
+              showOverlay ? 'bg-primary/20 text-primary' : 'bg-muted/60 text-muted-foreground'
+            }`}
+            title={showOverlay ? 'Hide MediaPipe overlay' : 'Show MediaPipe overlay'}
+          >
+            <Layers className="w-4 h-4" />
+          </button>
 
           {camera.recording && (
             <div className="absolute top-3 right-3 flex items-center gap-2 bg-destructive/90 text-destructive-foreground px-3 py-1.5 rounded-full text-xs font-medium">

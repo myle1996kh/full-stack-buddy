@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Activity, Volume2, Eye, Zap, Play, Square, RotateCcw, ArrowLeft, Trophy } from 'lucide-react';
+import { Activity, Volume2, Eye, Zap, Play, Square, RotateCcw, ArrowLeft, Trophy, Layers } from 'lucide-react';
 import { useCamera } from '@/hooks/useCamera';
+import LandmarkOverlay from '@/components/overlay/LandmarkOverlay';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
 import { useToast } from '@/hooks/use-toast';
@@ -36,6 +37,7 @@ export default function PlaygroundPage() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [liveFrame, setLiveFrame] = useState<MSEFrame | null>(null);
   const [scores, setScores] = useState<MSEScores | null>(null);
+  const [showOverlay, setShowOverlay] = useState(true);
   const [saving, setSaving] = useState(false);
   const liveMotion = useRef(0);
   const liveVolume = useRef(0);
@@ -252,12 +254,29 @@ export default function PlaygroundPage() {
                 playsInline
                 style={{ transform: 'scaleX(-1)' }}
               />
+              {/* MediaPipe overlay */}
+              {showOverlay && (
+                <LandmarkOverlay
+                  videoRef={cam.videoRef as React.RefObject<HTMLVideoElement>}
+                  active={cam.active}
+                  mirrored={true}
+                />
+              )}
               {!cam.active && playState === 'practicing' && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 </div>
               )}
               <p className="absolute top-1 left-1 text-[10px] text-muted-foreground bg-background/60 px-1 rounded">🎥 You</p>
+              <button
+                onClick={() => setShowOverlay(v => !v)}
+                className={`absolute bottom-1 right-1 p-1 rounded backdrop-blur-sm transition-colors ${
+                  showOverlay ? 'bg-primary/20 text-primary' : 'bg-muted/60 text-muted-foreground'
+                }`}
+                title={showOverlay ? 'Hide overlay' : 'Show overlay'}
+              >
+                <Layers className="w-3 h-3" />
+              </button>
             </div>
           </CardContent>
         </Card>
