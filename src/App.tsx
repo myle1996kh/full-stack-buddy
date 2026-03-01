@@ -18,6 +18,7 @@ import AppLayout from './components/layout/AppLayout';
 // Captain pages
 import LessonsPage from './pages/captain/LessonsPage';
 import RecordPage from './pages/captain/RecordPage';
+import ReviewPage from './pages/captain/ReviewPage';
 import CrewProgressPage from './pages/captain/CrewProgressPage';
 
 // Crew pages
@@ -93,6 +94,7 @@ function AppRoutes() {
         {/* Captain routes */}
         <Route path="/captain/lessons" element={<LessonsPage />} />
         <Route path="/captain/record" element={<RecordPage />} />
+        <Route path="/captain/record/review" element={<ReviewPage />} />
         <Route path="/captain/crews" element={<CrewProgressPage />} />
 
         {/* Crew routes */}

@@ -1,112 +1,313 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Video, Play, Square, RotateCcw, Activity, Volume2, Eye, Zap } from 'lucide-react';
-import { Progress } from '@/components/ui/progress';
+import { Activity, Volume2, Eye, Zap, Play, Square, RotateCcw, ArrowLeft, Trophy } from 'lucide-react';
+import { useCamera } from '@/hooks/useCamera';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuthStore } from '@/stores/authStore';
+import { useToast } from '@/hooks/use-toast';
+import { compareMSE, type MSEScores } from '@/engine/detection/mseComparer';
+import type { MSEFrame, MSEPattern } from '@/engine/detection/mseDetector';
+import { getScoreLevel, getScoreLevelLabel } from '@/types/modules';
+import { Link } from 'react-router-dom';
+
+interface Lesson {
+  id: string;
+  title: string;
+  captain_name: string;
+  difficulty: string;
+  weight_motion: number;
+  weight_sound: number;
+  weight_eyes: number;
+  reference_pattern: MSEPattern;
+  captain_id: string;
+}
+
+type PlayState = 'select' | 'ready' | 'practicing' | 'results';
 
 export default function PlaygroundPage() {
-  const [practicing, setPracticing] = useState(false);
-  const [finished, setFinished] = useState(false);
+  const { id } = useParams();
+  const { user } = useAuthStore();
+  const { toast } = useToast();
 
-  // Mock real-time scores
-  const mockScores = { motion: 78, sound: 62, eyes: 91 };
-  const consciousness = Math.round((mockScores.motion + mockScores.sound + mockScores.eyes) / 3);
+  const [lesson, setLesson] = useState<Lesson | null>(null);
+  const [playState, setPlayState] = useState<PlayState>(id ? 'ready' : 'select');
+  const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [liveFrame, setLiveFrame] = useState<MSEFrame | null>(null);
+  const [scores, setScores] = useState<MSEScores | null>(null);
+  const [saving, setSaving] = useState(false);
+  const liveMotion = useRef(0);
+  const liveVolume = useRef(0);
+  const liveGazeZone = useRef('—');
 
-  const handleStop = () => {
-    setPracticing(false);
-    setFinished(true);
+  const onFrame = useCallback((frame: MSEFrame) => {
+    liveMotion.current = Math.round(frame.motion.motionLevel * 100);
+    liveVolume.current = Math.round(frame.sound.volume);
+    liveGazeZone.current = frame.gaze.zone;
+    setLiveFrame(frame);
+  }, []);
+
+  const cam = useCamera({ onFrame });
+
+  // Fetch lessons list or single lesson
+  useEffect(() => {
+    if (id) {
+      supabase.from('lessons').select('*').eq('id', id).single().then(({ data }) => {
+        if (data) {
+          setLesson(data as unknown as Lesson);
+          setPlayState('ready');
+        }
+      });
+    } else {
+      supabase.from('lessons').select('*').eq('status', 'published').order('created_at', { ascending: false }).then(({ data }) => {
+        setLessons((data || []) as unknown as Lesson[]);
+      });
+    }
+  }, [id]);
+
+  const handleSelectLesson = (l: Lesson) => {
+    setLesson(l);
+    setPlayState('ready');
   };
 
+  const handleStart = async () => {
+    await cam.startCamera();
+    await cam.startDetection();
+    setPlayState('practicing');
+  };
+
+  const handleStop = async () => {
+    cam.stopDetection();
+    const pattern = cam.extractPattern();
+    cam.stopCamera();
+
+    if (pattern && lesson) {
+      const result = compareMSE(lesson.reference_pattern, pattern, {
+        motion: lesson.weight_motion,
+        sound: lesson.weight_sound,
+        eyes: lesson.weight_eyes,
+      });
+      setScores(result);
+      setPlayState('results');
+
+      // Save session to DB
+      if (user) {
+        setSaving(true);
+        await supabase.from('sessions').insert({
+          crew_id: user.id,
+          lesson_id: lesson.id,
+          captain_id: lesson.captain_id,
+          duration: Math.round(pattern.duration),
+          consciousness_percent: result.overall,
+          scores: result as any,
+          level: getScoreLevel(result.overall),
+        });
+        setSaving(false);
+      }
+    }
+  };
+
+  const handleRetry = () => {
+    setScores(null);
+    setPlayState('ready');
+  };
+
+  // Lesson selection view
+  if (playState === 'select') {
+    return (
+      <div className="space-y-4 animate-slide-up">
+        <h1 className="text-2xl font-bold">🎮 Select a Lesson</h1>
+        {lessons.length === 0 ? (
+          <Card className="glass"><CardContent className="p-8 text-center text-sm text-muted-foreground">No published lessons yet</CardContent></Card>
+        ) : (
+          <div className="space-y-3">
+            {lessons.map(l => (
+              <Card key={l.id} className="glass cursor-pointer hover:border-primary/30 transition-colors" onClick={() => handleSelectLesson(l)}>
+                <CardContent className="p-4">
+                  <h3 className="font-medium">{l.title}</h3>
+                  <p className="text-xs text-muted-foreground mt-1">by {l.captain_name} · {l.difficulty}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Results view
+  if (playState === 'results' && scores) {
+    const level = getScoreLevel(scores.overall);
+    const levelColors: Record<string, string> = {
+      unconscious: 'text-score-gray', awakening: 'text-score-yellow', developing: 'text-score-orange',
+      conscious: 'text-score-green', mastery: 'text-score-gold',
+    };
+
+    return (
+      <div className="space-y-4 animate-slide-up">
+        <h1 className="text-xl font-bold">📊 Session Results</h1>
+
+        {/* Big score */}
+        <Card className="glass">
+          <CardContent className="p-8 text-center">
+            <Trophy className={`w-10 h-10 mx-auto mb-3 ${levelColors[level]}`} />
+            <div className="text-5xl font-bold text-mse-consciousness mb-2">{scores.overall}%</div>
+            <div className={`text-sm font-medium uppercase ${levelColors[level]}`}>{getScoreLevelLabel(level)}</div>
+          </CardContent>
+        </Card>
+
+        {/* Per-metric breakdown */}
+        {[
+          { key: 'motion' as const, icon: Activity, label: 'Motion', color: 'bg-mse-motion', textColor: 'text-mse-motion' },
+          { key: 'sound' as const, icon: Volume2, label: 'Sound', color: 'bg-mse-sound', textColor: 'text-mse-sound' },
+          { key: 'eyes' as const, icon: Eye, label: 'Eyes', color: 'bg-mse-eyes', textColor: 'text-mse-eyes' },
+        ].map(item => (
+          <Card key={item.key} className="glass">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <item.icon className={`w-4 h-4 ${item.textColor}`} />
+                  <span className="text-sm font-medium">{item.label}</span>
+                </div>
+                <span className={`text-lg font-bold ${item.textColor}`}>{scores[item.key].score}%</span>
+              </div>
+              {Object.entries(scores[item.key].breakdown).map(([sub, val]) => (
+                <div key={sub} className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground capitalize">{sub.replace(/_/g, ' ')}</span>
+                    <span className="font-mono">{Math.round(val as number)}%</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className={`h-full rounded-full ${item.color} transition-all`} style={{ width: `${val}%` }} />
+                  </div>
+                </div>
+              ))}
+              {scores[item.key].feedback.map((fb, i) => (
+                <p key={i} className="text-xs text-muted-foreground">💡 {fb}</p>
+              ))}
+            </CardContent>
+          </Card>
+        ))}
+
+        <div className="flex gap-3 pb-4">
+          <Button variant="outline" className="flex-1 gap-2" onClick={handleRetry}>
+            <RotateCcw className="w-4 h-4" /> Try Again
+          </Button>
+          <Link to="/crew/progress" className="flex-1">
+            <Button className="w-full gap-2">View Progress</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Ready / Practicing view
   return (
     <div className="space-y-4 animate-slide-up">
-      <h1 className="text-xl font-bold">🎮 Playground — "Hello Everyone"</h1>
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="icon" onClick={() => { cam.destroy(); setPlayState('select'); setLesson(null); }}>
+          <ArrowLeft className="w-4 h-4" />
+        </Button>
+        <h1 className="text-lg font-bold truncate">🎮 {lesson?.title || 'Playground'}</h1>
+      </div>
 
       {/* Split view */}
       <div className="grid grid-cols-2 gap-3">
+        {/* Reference panel */}
         <Card className="glass overflow-hidden">
           <CardContent className="p-0">
-            <div className="aspect-video bg-muted/30 flex items-center justify-center">
-              <div className="text-center p-3">
-                <p className="text-[10px] text-muted-foreground mb-1">🧑‍✈️ Captain Reference</p>
-                <div className="w-16 h-16 rounded-lg bg-muted/50 mx-auto flex items-center justify-center">
-                  <Activity className="w-6 h-6 text-mse-motion opacity-50" />
-                </div>
+            <div className="aspect-video bg-muted/30 flex items-center justify-center p-3">
+              <div className="text-center w-full">
+                <p className="text-[10px] text-muted-foreground mb-2">🧑‍✈️ Captain Reference</p>
+                {lesson && (
+                  <div className="space-y-1.5 text-[10px]">
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Motion</span>
+                      <span>{Math.round((lesson.reference_pattern?.motion?.avgMotionLevel || 0) * 100)}%</span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Pitch</span>
+                      <span>{lesson.reference_pattern?.sound?.avgPitch || 0}Hz</span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Gaze</span>
+                      <span>{lesson.reference_pattern?.eyes?.primaryZone || '—'}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </CardContent>
         </Card>
 
+        {/* Live camera */}
         <Card className="glass overflow-hidden">
           <CardContent className="p-0">
-            <div className="aspect-video bg-muted/30 flex items-center justify-center">
-              <div className="text-center p-3">
-                <p className="text-[10px] text-muted-foreground mb-1">🎥 Your Camera</p>
-                <Video className="w-8 h-8 text-muted-foreground mx-auto" />
-              </div>
+            <div className="aspect-video bg-muted/30 relative">
+              <video
+                ref={cam.videoRef}
+                className="w-full h-full object-cover"
+                muted
+                playsInline
+                style={{ transform: 'scaleX(-1)' }}
+              />
+              {!cam.active && playState === 'practicing' && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+              <p className="absolute top-1 left-1 text-[10px] text-muted-foreground bg-background/60 px-1 rounded">🎥 You</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* MSE Gauges */}
+      {/* Live MSE Gauges */}
       <Card className="glass">
         <CardContent className="p-4 space-y-3">
           <h3 className="text-sm font-medium">Real-time MSE Match</h3>
-
           {[
-            { icon: Activity, label: 'Motion', score: mockScores.motion, color: 'bg-mse-motion' },
-            { icon: Volume2, label: 'Sound', score: mockScores.sound, color: 'bg-mse-sound' },
-            { icon: Eye, label: 'Eyes', score: mockScores.eyes, color: 'bg-mse-eyes' },
+            { icon: Activity, label: 'Motion', value: liveMotion.current, color: 'bg-mse-motion' },
+            { icon: Volume2, label: 'Sound', value: Math.min(100, liveVolume.current), color: 'bg-mse-sound' },
+            { icon: Eye, label: 'Eyes', value: liveFrame?.gaze.faceDetected ? 80 : 20, color: 'bg-mse-eyes' },
           ].map(item => (
             <div key={item.label} className="flex items-center gap-3">
-              <item.icon className="w-4 h-4 shrink-0" style={{ color: `var(--mse-${item.label.toLowerCase()})` ? undefined : undefined }} />
+              <item.icon className="w-4 h-4 shrink-0" />
               <div className="flex-1">
                 <div className="flex justify-between text-xs mb-1">
                   <span>{item.label}</span>
-                  <span className="font-mono">{practicing || finished ? `${item.score}%` : '—'}</span>
+                  <span className="font-mono">{playState === 'practicing' ? `${item.value}%` : '—'}</span>
                 </div>
                 <div className="h-2 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${item.color} transition-all duration-700`}
-                    style={{ width: practicing || finished ? `${item.score}%` : '0%' }}
-                  />
+                  <div className={`h-full rounded-full ${item.color} transition-all duration-200`}
+                    style={{ width: playState === 'practicing' ? `${item.value}%` : '0%' }} />
                 </div>
               </div>
             </div>
           ))}
-
           <div className="pt-2 border-t border-border/50 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Zap className="w-4 h-4 text-mse-consciousness" />
-              <span className="text-sm font-medium">Consciousness</span>
-            </div>
+            <div className="flex items-center gap-2"><Zap className="w-4 h-4 text-mse-consciousness" /><span className="text-sm font-medium">Consciousness</span></div>
             <span className="text-xl font-bold text-mse-consciousness">
-              {practicing || finished ? `${consciousness}%` : '—'}
+              {playState === 'practicing' ? `${Math.round((liveMotion.current + Math.min(100, liveVolume.current) + (liveFrame?.gaze.faceDetected ? 80 : 20)) / 3)}%` : '—'}
             </span>
           </div>
         </CardContent>
       </Card>
 
       {/* Controls */}
-      <div className="flex items-center justify-center gap-3">
-        {!practicing && !finished && (
-          <Button size="lg" onClick={() => setPracticing(true)} className="gap-2">
+      <div className="flex items-center justify-center gap-4 pt-2">
+        {playState === 'ready' && (
+          <Button size="lg" onClick={handleStart} className="gap-2">
             <Play className="w-4 h-4" /> Start Practice
           </Button>
         )}
-        {practicing && (
-          <Button size="lg" variant="destructive" onClick={handleStop} className="gap-2">
-            <Square className="w-4 h-4" /> Stop
-          </Button>
-        )}
-        {finished && (
+        {playState === 'practicing' && (
           <>
-            <Button size="lg" variant="outline" onClick={() => { setFinished(false); setPracticing(false); }} className="gap-2">
-              <RotateCcw className="w-4 h-4" /> Try Again
+            <Button size="lg" variant="destructive" onClick={handleStop} className="gap-2">
+              <Square className="w-4 h-4" /> Stop
             </Button>
-            <Button size="lg" className="gap-2">
-              View Results
-            </Button>
+            <span className="text-lg font-mono text-muted-foreground">{cam.elapsed}s</span>
           </>
         )}
       </div>
