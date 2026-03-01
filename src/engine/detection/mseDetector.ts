@@ -6,6 +6,8 @@
 import { AudioAnalyzer, type AudioFrame } from './audioAnalyzer';
 import { MotionDetector, type MotionFrame, type PoseLabel } from './motionDetector';
 import { GazeDetector, type GazeFrame } from './gazeDetector';
+import { ensureMediaPipe, detectPose } from '@/engine/mediapipe/mediapipeService';
+import type { NormalizedLandmark } from '@mediapipe/tasks-vision';
 
 export interface MSEFrame {
   timestamp: number;
@@ -21,6 +23,13 @@ export interface PoseSegment {
   frameCount: number;
 }
 
+export interface PoseLandmarkSnapshot {
+  /** Normalized 0-1 coordinates for each of the 33 MediaPipe landmarks */
+  landmarks: { x: number; y: number; z: number }[];
+  pose: PoseLabel;
+  frameIndex: number;
+}
+
 export interface MSEPattern {
   motion: {
     avgMotionLevel: number;
@@ -30,6 +39,8 @@ export interface MSEPattern {
     poseCounts: Record<PoseLabel, number>;
     poseSegments: PoseSegment[];
     totalFrames: number;
+    /** Sampled keyframe pose landmarks from MediaPipe */
+    poseSnapshots: PoseLandmarkSnapshot[];
   };
   sound: {
     pitchContour: number[];
@@ -58,11 +69,18 @@ export class MSEDetector {
   private animFrameId: number | null = null;
   private videoEl: HTMLVideoElement | null = null;
   private onFrame?: (frame: MSEFrame) => void;
+  private mediaPipeReady = false;
+  private poseLandmarkBuffer: PoseLandmarkSnapshot[] = [];
+  private frameCounter = 0;
 
   async init(stream: MediaStream, videoEl: HTMLVideoElement): Promise<void> {
     this.videoEl = videoEl;
     await this.audioAnalyzer.init(stream);
     this.frames = [];
+    this.poseLandmarkBuffer = [];
+    this.frameCounter = 0;
+    // Try to load MediaPipe (non-blocking)
+    ensureMediaPipe().then(() => { this.mediaPipeReady = true; }).catch(() => {});
   }
 
   start(onFrame?: (frame: MSEFrame) => void): void {
@@ -86,6 +104,22 @@ export class MSEDetector {
     const motion = this.motionDetector.processVideoFrame(this.videoEl);
     const sound = this.audioAnalyzer.getFrame();
     const gaze = this.gazeDetector.processVideoFrame(this.videoEl);
+
+    // Capture MediaPipe pose landmarks every 10th frame
+    if (this.mediaPipeReady && this.frameCounter % 10 === 0) {
+      try {
+        const poseResult = detectPose(this.videoEl, performance.now());
+        if (poseResult?.landmarks?.length) {
+          const lm = poseResult.landmarks[0];
+          this.poseLandmarkBuffer.push({
+            landmarks: lm.map(l => ({ x: l.x, y: l.y, z: l.z })),
+            pose: motion.pose,
+            frameIndex: this.frameCounter,
+          });
+        }
+      } catch { /* MediaPipe not ready */ }
+    }
+    this.frameCounter++;
 
     const frame: MSEFrame = {
       timestamp: Date.now(),
@@ -183,6 +217,18 @@ export class MSEDetector {
       ? Array.from({ length: 50 }, (_, i) => centroidPath[Math.floor(i * centroidPath.length / 50)])
       : centroidPath;
 
+    // Sample up to 10 evenly-spaced pose snapshots
+    const maxSnapshots = 10;
+    let poseSnapshots: PoseLandmarkSnapshot[] = [];
+    if (this.poseLandmarkBuffer.length <= maxSnapshots) {
+      poseSnapshots = [...this.poseLandmarkBuffer];
+    } else {
+      const step = Math.floor(this.poseLandmarkBuffer.length / maxSnapshots);
+      for (let i = 0; i < maxSnapshots; i++) {
+        poseSnapshots.push(this.poseLandmarkBuffer[i * step]);
+      }
+    }
+
     return {
       motion: {
         avgMotionLevel,
@@ -192,6 +238,7 @@ export class MSEDetector {
         poseCounts,
         poseSegments: poseSegments.slice(0, 50),
         totalFrames: frames.length,
+        poseSnapshots,
       },
       sound: {
         pitchContour: downsample(pitchContour),
@@ -229,7 +276,7 @@ export class MSEDetector {
 
   private emptyPattern(): MSEPattern {
     return {
-      motion: { avgMotionLevel: 0, regionProfile: new Array(9).fill(0), motionTimeline: [], centroidPath: [], poseCounts: { still: 0, subtle: 0, gesture: 0, movement: 0, active: 0 }, poseSegments: [], totalFrames: 0 },
+      motion: { avgMotionLevel: 0, regionProfile: new Array(9).fill(0), motionTimeline: [], centroidPath: [], poseCounts: { still: 0, subtle: 0, gesture: 0, movement: 0, active: 0 }, poseSegments: [], totalFrames: 0, poseSnapshots: [] },
       sound: { pitchContour: [], volumeContour: [], avgPitch: 0, avgVolume: 0, syllableRate: 0 },
       eyes: { zoneDwellTimes: {}, zoneSequence: [], zoneTimeline: [], primaryZone: 'center', faceDetectedRatio: 0 },
       duration: 0,
