@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { TrendingUp, Zap, Award } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
@@ -39,6 +40,22 @@ function parseScores(s: Json | null): SessionScores {
   if (!s || typeof s !== 'object' || Array.isArray(s)) return {};
   return s as unknown as SessionScores;
 }
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 20, scale: 0.97 },
+  visible: (i: number) => ({
+    opacity: 1, y: 0, scale: 1,
+    transition: { delay: i * 0.08, duration: 0.4, ease: "easeOut" as const },
+  }),
+};
+
+const statVariants = {
+  hidden: { opacity: 0, scale: 0.8 },
+  visible: (i: number) => ({
+    opacity: 1, scale: 1,
+    transition: { delay: 0.1 + i * 0.1, type: "spring" as const, stiffness: 200, damping: 15 },
+  }),
+};
 
 export default function ProgressPage() {
   const { user } = useAuthStore();
@@ -100,114 +117,133 @@ export default function ProgressPage() {
   }
 
   return (
-    <div className="space-y-6 animate-slide-up">
-      <h1 className="text-2xl font-bold">My Progress</h1>
+    <div className="space-y-6">
+      <motion.h1
+        className="text-2xl font-bold"
+        initial={{ opacity: 0, x: -20 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.3 }}
+      >
+        My Progress
+      </motion.h1>
 
       {/* Stats cards */}
       <div className="grid grid-cols-3 gap-3">
-        <Card className="glass"><CardContent className="p-4 text-center">
-          <Zap className="w-5 h-5 text-mse-consciousness mx-auto mb-2" />
-          <div className="text-2xl font-bold text-mse-consciousness">{avgConsciousness}%</div>
-          <div className="text-[10px] text-muted-foreground">Average</div>
-        </CardContent></Card>
-        <Card className="glass"><CardContent className="p-4 text-center">
-          <Award className="w-5 h-5 text-score-gold mx-auto mb-2" />
-          <div className="text-2xl font-bold text-score-gold">{bestConsciousness}%</div>
-          <div className="text-[10px] text-muted-foreground">Best</div>
-        </CardContent></Card>
-        <Card className="glass"><CardContent className="p-4 text-center">
-          <TrendingUp className="w-5 h-5 text-primary mx-auto mb-2" />
-          <div className="text-2xl font-bold">{sessions.length}</div>
-          <div className="text-[10px] text-muted-foreground">Sessions</div>
-        </CardContent></Card>
+        {[
+          { icon: Zap, value: `${avgConsciousness}%`, label: 'Average', color: 'text-mse-consciousness', iconColor: 'text-mse-consciousness' },
+          { icon: Award, value: `${bestConsciousness}%`, label: 'Best', color: 'text-score-gold', iconColor: 'text-score-gold' },
+          { icon: TrendingUp, value: `${sessions.length}`, label: 'Sessions', color: '', iconColor: 'text-primary' },
+        ].map((stat, i) => (
+          <motion.div key={stat.label} custom={i} variants={statVariants} initial="hidden" animate="visible">
+            <Card className="glass"><CardContent className="p-4 text-center">
+              <stat.icon className={`w-5 h-5 ${stat.iconColor} mx-auto mb-2`} />
+              <div className={`text-2xl font-bold ${stat.color}`}>{stat.value}</div>
+              <div className="text-[10px] text-muted-foreground">{stat.label}</div>
+            </CardContent></Card>
+          </motion.div>
+        ))}
       </div>
 
-      {sessions.length > 0 && (
-        <>
-          {/* MSE Radar */}
-          <Card className="glass">
-            <CardContent className="p-4">
-              <h3 className="text-sm font-medium mb-2">MSE Radar</h3>
-              <MSERadarChart motion={mseAvg.motion} sound={mseAvg.sound} eyes={mseAvg.eyes} />
-            </CardContent>
-          </Card>
+      <AnimatePresence>
+        {sessions.length > 0 && (
+          <>
+            <motion.div custom={0} variants={cardVariants} initial="hidden" animate="visible">
+              <Card className="glass">
+                <CardContent className="p-4">
+                  <h3 className="text-sm font-medium mb-2">MSE Radar</h3>
+                  <MSERadarChart motion={mseAvg.motion} sound={mseAvg.sound} eyes={mseAvg.eyes} />
+                </CardContent>
+              </Card>
+            </motion.div>
 
-          {/* Score Breakdown */}
-          <Card className="glass">
-            <CardContent className="p-4">
-              <h3 className="text-sm font-medium mb-2">Score Breakdown</h3>
-              <ScoreBreakdownChart motion={mseAvg.motion} sound={mseAvg.sound} eyes={mseAvg.eyes} consciousness={avgConsciousness} />
-            </CardContent>
-          </Card>
+            <motion.div custom={1} variants={cardVariants} initial="hidden" animate="visible">
+              <Card className="glass">
+                <CardContent className="p-4">
+                  <h3 className="text-sm font-medium mb-2">Score Breakdown</h3>
+                  <ScoreBreakdownChart motion={mseAvg.motion} sound={mseAvg.sound} eyes={mseAvg.eyes} consciousness={avgConsciousness} />
+                </CardContent>
+              </Card>
+            </motion.div>
 
-          {/* Consciousness Trend */}
-          <Card className="glass">
-            <CardContent className="p-4">
-              <h3 className="text-sm font-medium mb-2">Consciousness Trend</h3>
-              <p className="text-[10px] text-muted-foreground mb-2">
-                <span className="inline-block w-2 h-2 rounded-full bg-mse-motion mr-1" />Motion
-                <span className="inline-block w-2 h-2 rounded-full bg-mse-sound ml-2 mr-1" />Sound
-                <span className="inline-block w-2 h-2 rounded-full bg-mse-eyes ml-2 mr-1" />Eyes
-                <span className="inline-block w-2 h-2 rounded-full bg-mse-consciousness ml-2 mr-1" />MSE
-              </p>
-              <ConsciousnessTrendChart data={trendData} />
-            </CardContent>
-          </Card>
+            <motion.div custom={2} variants={cardVariants} initial="hidden" animate="visible">
+              <Card className="glass">
+                <CardContent className="p-4">
+                  <h3 className="text-sm font-medium mb-2">Consciousness Trend</h3>
+                  <p className="text-[10px] text-muted-foreground mb-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-mse-motion mr-1" />Motion
+                    <span className="inline-block w-2 h-2 rounded-full bg-mse-sound ml-2 mr-1" />Sound
+                    <span className="inline-block w-2 h-2 rounded-full bg-mse-eyes ml-2 mr-1" />Eyes
+                    <span className="inline-block w-2 h-2 rounded-full bg-mse-consciousness ml-2 mr-1" />MSE
+                  </p>
+                  <ConsciousnessTrendChart data={trendData} />
+                </CardContent>
+              </Card>
+            </motion.div>
 
-          {/* Sound Contour (latest session) */}
-          {latest?.pitchContour && latest.pitchContour.length > 0 && (
-            <Card className="glass">
-              <CardContent className="p-4">
-                <h3 className="text-sm font-medium mb-1">Sound Contour <span className="text-[10px] text-muted-foreground">(latest)</span></h3>
-                <SoundContourChart pitchContour={latest.pitchContour} volumeContour={latest.volumeContour ?? []} />
-              </CardContent>
-            </Card>
-          )}
+            {latest?.pitchContour && latest.pitchContour.length > 0 && (
+              <motion.div custom={3} variants={cardVariants} initial="hidden" animate="visible">
+                <Card className="glass">
+                  <CardContent className="p-4">
+                    <h3 className="text-sm font-medium mb-1">Sound Contour <span className="text-[10px] text-muted-foreground">(latest)</span></h3>
+                    <SoundContourChart pitchContour={latest.pitchContour} volumeContour={latest.volumeContour ?? []} />
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
 
-          {/* Gaze Map (latest session) */}
-          {latest?.zoneDwellTimes && (
-            <Card className="glass">
-              <CardContent className="p-4">
-                <h3 className="text-sm font-medium mb-1">Gaze Map <span className="text-[10px] text-muted-foreground">(latest)</span></h3>
-                <GazeMapChart points={[]} zoneDwellTimes={latest.zoneDwellTimes} />
-              </CardContent>
-            </Card>
-          )}
-        </>
-      )}
+            {latest?.zoneDwellTimes && (
+              <motion.div custom={4} variants={cardVariants} initial="hidden" animate="visible">
+                <Card className="glass">
+                  <CardContent className="p-4">
+                    <h3 className="text-sm font-medium mb-1">Gaze Map <span className="text-[10px] text-muted-foreground">(latest)</span></h3>
+                    <GazeMapChart points={[]} zoneDwellTimes={latest.zoneDwellTimes} />
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Session history */}
-      <div>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
         <h3 className="text-sm font-medium mb-3">Session History</h3>
         {sessions.length === 0 ? (
           <Card className="glass"><CardContent className="p-8 text-center text-sm text-muted-foreground">No sessions yet — start practicing!</CardContent></Card>
         ) : (
           <div className="space-y-2">
-            {sessions.map(s => {
+            {sessions.map((s, i) => {
               const sc = parseScores(s.scores);
               return (
-                <Card key={s.id} className="glass">
-                  <CardContent className="p-3 flex items-center justify-between">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{s.lessons?.title || 'Unknown'}</p>
-                      <p className="text-xs text-muted-foreground">{new Date(s.created_at).toLocaleDateString()} · {s.duration}s</p>
-                      <div className="flex gap-2 mt-1">
-                        {sc.motion != null && <span className="text-[10px] text-mse-motion font-mono">M:{Math.round(sc.motion)}%</span>}
-                        {sc.sound != null && <span className="text-[10px] text-mse-sound font-mono">S:{Math.round(sc.sound)}%</span>}
-                        {sc.eyes != null && <span className="text-[10px] text-mse-eyes font-mono">E:{Math.round(sc.eyes)}%</span>}
+                <motion.div
+                  key={s.id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.5 + i * 0.03, duration: 0.3 }}
+                >
+                  <Card className="glass">
+                    <CardContent className="p-3 flex items-center justify-between">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{s.lessons?.title || 'Unknown'}</p>
+                        <p className="text-xs text-muted-foreground">{new Date(s.created_at).toLocaleDateString()} · {s.duration}s</p>
+                        <div className="flex gap-2 mt-1">
+                          {sc.motion != null && <span className="text-[10px] text-mse-motion font-mono">M:{Math.round(sc.motion)}%</span>}
+                          {sc.sound != null && <span className="text-[10px] text-mse-sound font-mono">S:{Math.round(sc.sound)}%</span>}
+                          {sc.eyes != null && <span className="text-[10px] text-mse-eyes font-mono">E:{Math.round(sc.eyes)}%</span>}
+                        </div>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-lg font-bold text-mse-consciousness">{Math.round(s.consciousness_percent)}%</div>
-                      <div className={`text-[10px] capitalize ${levelColors[s.level] || ''}`}>{s.level}</div>
-                    </div>
-                  </CardContent>
-                </Card>
+                      <div className="text-right">
+                        <div className="text-lg font-bold text-mse-consciousness">{Math.round(s.consciousness_percent)}%</div>
+                        <div className={`text-[10px] capitalize ${levelColors[s.level] || ''}`}>{s.level}</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
               );
             })}
           </div>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 }
