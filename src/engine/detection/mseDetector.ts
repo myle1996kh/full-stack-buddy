@@ -4,7 +4,7 @@
  */
 
 import { AudioAnalyzer, type AudioFrame } from './audioAnalyzer';
-import { MotionDetector, type MotionFrame } from './motionDetector';
+import { MotionDetector, type MotionFrame, type PoseLabel } from './motionDetector';
 import { GazeDetector, type GazeFrame } from './gazeDetector';
 
 export interface MSEFrame {
@@ -14,12 +14,22 @@ export interface MSEFrame {
   gaze: GazeFrame;
 }
 
+export interface PoseSegment {
+  pose: PoseLabel;
+  startFrame: number;
+  endFrame: number;
+  frameCount: number;
+}
+
 export interface MSEPattern {
   motion: {
     avgMotionLevel: number;
     regionProfile: number[];
     motionTimeline: number[];
     centroidPath: { x: number; y: number }[];
+    poseCounts: Record<PoseLabel, number>;
+    poseSegments: PoseSegment[];
+    totalFrames: number;
   };
   sound: {
     pitchContour: number[];
@@ -31,6 +41,7 @@ export interface MSEPattern {
   eyes: {
     zoneDwellTimes: Record<string, number>;
     zoneSequence: string[];
+    zoneTimeline: { time: number; zone: string }[];
     primaryZone: string;
     faceDetectedRatio: number;
   };
@@ -106,6 +117,20 @@ export class MSEDetector {
     });
     regionProfile.forEach((v, i) => { regionProfile[i] = v / frames.length; });
 
+    // Pose classification
+    const poseCounts: Record<PoseLabel, number> = { still: 0, subtle: 0, gesture: 0, movement: 0, active: 0 };
+    const poseSegments: PoseSegment[] = [];
+    let currentPose: PoseLabel = frames[0].motion.pose;
+    let segStart = 0;
+    frames.forEach((f, i) => {
+      poseCounts[f.motion.pose]++;
+      if (f.motion.pose !== currentPose || i === frames.length - 1) {
+        poseSegments.push({ pose: currentPose, startFrame: segStart, endFrame: i - 1, frameCount: i - segStart });
+        currentPose = f.motion.pose;
+        segStart = i;
+      }
+    });
+
     // Sound pattern
     const pitchContour = frames.map(f => f.sound.pitch);
     const volumeContour = frames.map(f => f.sound.volume);
@@ -125,12 +150,17 @@ export class MSEDetector {
     // Eyes pattern
     const zoneDwellTimes: Record<string, number> = {};
     const zoneSequence: string[] = [];
+    const zoneTimeline: { time: number; zone: string }[] = [];
     let faceDetectedCount = 0;
+    const startTime = frames[0].timestamp;
 
     frames.forEach(f => {
       const zone = f.gaze.zone;
-      zoneDwellTimes[zone] = (zoneDwellTimes[zone] || 0) + (1 / 30); // approx 30fps
-      if (zoneSequence[zoneSequence.length - 1] !== zone) zoneSequence.push(zone);
+      zoneDwellTimes[zone] = (zoneDwellTimes[zone] || 0) + (1 / 30);
+      if (zoneSequence[zoneSequence.length - 1] !== zone) {
+        zoneSequence.push(zone);
+        zoneTimeline.push({ time: Math.round((f.timestamp - startTime) / 100) / 10, zone });
+      }
       if (f.gaze.faceDetected) faceDetectedCount++;
     });
 
@@ -159,6 +189,9 @@ export class MSEDetector {
         regionProfile,
         motionTimeline: downsample(motionLevels),
         centroidPath: sampledCentroid,
+        poseCounts,
+        poseSegments: poseSegments.slice(0, 50),
+        totalFrames: frames.length,
       },
       sound: {
         pitchContour: downsample(pitchContour),
@@ -170,6 +203,7 @@ export class MSEDetector {
       eyes: {
         zoneDwellTimes,
         zoneSequence: zoneSequence.slice(0, 100),
+        zoneTimeline: zoneTimeline.slice(0, 100),
         primaryZone,
         faceDetectedRatio: faceDetectedCount / frames.length,
       },
@@ -195,9 +229,9 @@ export class MSEDetector {
 
   private emptyPattern(): MSEPattern {
     return {
-      motion: { avgMotionLevel: 0, regionProfile: new Array(9).fill(0), motionTimeline: [], centroidPath: [] },
+      motion: { avgMotionLevel: 0, regionProfile: new Array(9).fill(0), motionTimeline: [], centroidPath: [], poseCounts: { still: 0, subtle: 0, gesture: 0, movement: 0, active: 0 }, poseSegments: [], totalFrames: 0 },
       sound: { pitchContour: [], volumeContour: [], avgPitch: 0, avgVolume: 0, syllableRate: 0 },
-      eyes: { zoneDwellTimes: {}, zoneSequence: [], primaryZone: 'center', faceDetectedRatio: 0 },
+      eyes: { zoneDwellTimes: {}, zoneSequence: [], zoneTimeline: [], primaryZone: 'center', faceDetectedRatio: 0 },
       duration: 0,
       frameCount: 0,
     };

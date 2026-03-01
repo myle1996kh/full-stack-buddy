@@ -10,7 +10,27 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
 import { useToast } from '@/hooks/use-toast';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, Cell } from 'recharts';
 import type { MSEPattern } from '@/engine/detection/mseDetector';
+import type { PoseLabel } from '@/engine/detection/motionDetector';
+
+const POSE_COLORS: Record<PoseLabel, string> = {
+  still: 'hsl(220, 9%, 46%)',
+  subtle: 'hsl(48, 96%, 53%)',
+  gesture: 'hsl(160, 59%, 42%)',
+  movement: 'hsl(25, 95%, 53%)',
+  active: 'hsl(0, 84%, 60%)',
+};
+
+const POSE_LABELS: Record<PoseLabel, string> = {
+  still: 'Still', subtle: 'Subtle', gesture: 'Gesture', movement: 'Movement', active: 'Active',
+};
+
+const ZONE_LABELS: Record<string, string> = {
+  'center': '●', 'top-center': '↑', 'bottom-center': '↓',
+  'center-left': '←', 'center-right': '→',
+  'top-left': '↖', 'top-right': '↗', 'bottom-left': '↙', 'bottom-right': '↘',
+};
 
 export default function ReviewPage() {
   const navigate = useNavigate();
@@ -68,6 +88,21 @@ export default function ReviewPage() {
 
   if (!pattern) return null;
 
+  // Prepare sound chart data
+  const soundData = pattern.sound.pitchContour.map((p, i) => ({
+    t: i,
+    pitch: Math.round(p),
+    volume: Math.round((pattern.sound.volumeContour[i] ?? 0) * 100),
+  }));
+
+  // Prepare pose bar data
+  const poseData = (Object.keys(POSE_LABELS) as PoseLabel[]).map(pose => ({
+    pose: POSE_LABELS[pose],
+    count: pattern.motion.poseCounts?.[pose] ?? 0,
+    color: POSE_COLORS[pose],
+  }));
+  const totalPoseFrames = pattern.motion.totalFrames || pattern.frameCount;
+
   return (
     <div className="space-y-4 animate-slide-up">
       <div className="flex items-center gap-3">
@@ -108,26 +143,72 @@ export default function ReviewPage() {
           <h3 className="text-sm font-medium">Extracted Patterns</h3>
           <p className="text-xs text-muted-foreground">Duration: {pattern.duration}s · {pattern.frameCount} frames</p>
 
-          {/* Motion */}
-          <div className="p-3 rounded-lg bg-muted/30 border-l-2 border-mse-motion space-y-2">
+          {/* ── MOTION ── */}
+          <div className="p-3 rounded-lg bg-muted/30 border-l-2 border-mse-motion space-y-3">
             <div className="flex items-center gap-2 text-sm">
               <Activity className="w-4 h-4 text-mse-motion" />
               <span className="font-medium">Motion</span>
+              <span className="ml-auto text-xs text-muted-foreground">{totalPoseFrames} frames detected</span>
             </div>
+
+            {/* Pose breakdown bar */}
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1">Pose Classification</p>
+              <div className="flex gap-px h-5 rounded overflow-hidden">
+                {poseData.filter(d => d.count > 0).map((d, i) => (
+                  <div
+                    key={i}
+                    className="relative group"
+                    style={{ width: `${(d.count / totalPoseFrames) * 100}%`, background: d.color }}
+                    title={`${d.pose}: ${d.count} frames (${Math.round(d.count / totalPoseFrames * 100)}%)`}
+                  />
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
+                {poseData.filter(d => d.count > 0).map((d, i) => (
+                  <div key={i} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <div className="w-2 h-2 rounded-sm" style={{ background: d.color }} />
+                    {d.pose} <span className="font-mono">{Math.round(d.count / totalPoseFrames * 100)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Pose segment timeline */}
+            {pattern.motion.poseSegments && pattern.motion.poseSegments.length > 0 && (
+              <div>
+                <p className="text-[10px] text-muted-foreground mb-1">Pose Timeline</p>
+                <div className="flex gap-px h-4 rounded overflow-hidden">
+                  {pattern.motion.poseSegments.map((seg, i) => (
+                    <div
+                      key={i}
+                      className="min-w-[2px]"
+                      style={{
+                        width: `${(seg.frameCount / totalPoseFrames) * 100}%`,
+                        background: POSE_COLORS[seg.pose],
+                        opacity: 0.8,
+                      }}
+                      title={`${POSE_LABELS[seg.pose]}: frames ${seg.startFrame}–${seg.endFrame}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Motion level mini timeline */}
             <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
               <span>Avg Level: {Math.round(pattern.motion.avgMotionLevel * 100)}%</span>
               <span>Data Points: {pattern.motion.motionTimeline.length}</span>
             </div>
-            {/* Mini motion timeline bar */}
             <div className="flex gap-px h-6 items-end">
-              {pattern.motion.motionTimeline.slice(0, 40).map((v, i) => (
+              {pattern.motion.motionTimeline.slice(0, 60).map((v, i) => (
                 <div key={i} className="flex-1 bg-mse-motion/60 rounded-t" style={{ height: `${Math.max(2, v * 100)}%` }} />
               ))}
             </div>
           </div>
 
-          {/* Sound */}
-          <div className="p-3 rounded-lg bg-muted/30 border-l-2 border-mse-sound space-y-2">
+          {/* ── SOUND ── */}
+          <div className="p-3 rounded-lg bg-muted/30 border-l-2 border-mse-sound space-y-3">
             <div className="flex items-center gap-2 text-sm">
               <Volume2 className="w-4 h-4 text-mse-sound" />
               <span className="font-medium">Sound</span>
@@ -137,15 +218,30 @@ export default function ReviewPage() {
               <span>Volume: {pattern.sound.avgVolume}</span>
               <span>Rate: {pattern.sound.syllableRate}/s</span>
             </div>
-            <div className="flex gap-px h-6 items-end">
-              {pattern.sound.volumeContour.slice(0, 40).map((v, i) => (
-                <div key={i} className="flex-1 bg-mse-sound/60 rounded-t" style={{ height: `${Math.max(2, v)}%` }} />
-              ))}
+            {/* Pitch + Volume line chart */}
+            {soundData.length > 0 && (
+              <ResponsiveContainer width="100%" height={140}>
+                <LineChart data={soundData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 14%, 16%)" />
+                  <XAxis dataKey="t" tick={{ fill: 'hsl(215, 14%, 50%)', fontSize: 8 }} tickLine={false} axisLine={false} />
+                  <YAxis yAxisId="pitch" tick={{ fill: 'hsl(215, 14%, 50%)', fontSize: 8 }} tickLine={false} axisLine={false} />
+                  <YAxis yAxisId="vol" orientation="right" domain={[0, 100]} tick={{ fill: 'hsl(215, 14%, 50%)', fontSize: 8 }} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    contentStyle={{ background: 'hsl(220, 18%, 10%)', border: '1px solid hsl(220, 14%, 18%)', borderRadius: 8, fontSize: 11 }}
+                  />
+                  <Line yAxisId="pitch" type="monotone" dataKey="pitch" name="Pitch Hz" stroke="hsl(0, 84%, 60%)" strokeWidth={1.5} dot={false} />
+                  <Line yAxisId="vol" type="monotone" dataKey="volume" name="Volume %" stroke="hsl(0, 60%, 45%)" strokeWidth={1} dot={false} strokeDasharray="3 2" />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+            <div className="flex gap-3 text-[10px] text-muted-foreground">
+              <div className="flex items-center gap-1"><div className="w-3 h-0.5 bg-mse-sound rounded" /> Pitch</div>
+              <div className="flex items-center gap-1"><div className="w-3 h-0.5 bg-mse-sound/50 rounded border-dashed" /> Volume</div>
             </div>
           </div>
 
-          {/* Eyes */}
-          <div className="p-3 rounded-lg bg-muted/30 border-l-2 border-mse-eyes space-y-2">
+          {/* ── EYES ── */}
+          <div className="p-3 rounded-lg bg-muted/30 border-l-2 border-mse-eyes space-y-3">
             <div className="flex items-center gap-2 text-sm">
               <Eye className="w-4 h-4 text-mse-eyes" />
               <span className="font-medium">Eyes</span>
@@ -154,16 +250,45 @@ export default function ReviewPage() {
               <span>Primary: {pattern.eyes.primaryZone}</span>
               <span>Face: {Math.round(pattern.eyes.faceDetectedRatio * 100)}%</span>
             </div>
-            {/* Mini gaze heatmap 3x3 */}
-            <div className="grid grid-cols-3 gap-1 max-w-[120px]">
-              {['top-left', 'top-center', 'top-right', 'center-left', 'center', 'center-right', 'bottom-left', 'bottom-center', 'bottom-right'].map(zone => {
-                const time = pattern.eyes.zoneDwellTimes[zone] || 0;
-                const max = Math.max(1, ...Object.values(pattern.eyes.zoneDwellTimes));
-                const opacity = 0.1 + (time / max) * 0.9;
-                return (
-                  <div key={zone} className="aspect-square rounded bg-mse-eyes" style={{ opacity }} />
-                );
-              })}
+
+            {/* Gaze heatmap 3x3 */}
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1">Gaze Heatmap</p>
+              <div className="grid grid-cols-3 gap-1 max-w-[140px]">
+                {['top-left', 'top-center', 'top-right', 'center-left', 'center', 'center-right', 'bottom-left', 'bottom-center', 'bottom-right'].map(zone => {
+                  const time = pattern.eyes.zoneDwellTimes[zone] || 0;
+                  const max = Math.max(0.01, ...Object.values(pattern.eyes.zoneDwellTimes));
+                  const opacity = 0.08 + (time / max) * 0.92;
+                  return (
+                    <div key={zone} className="aspect-square rounded bg-mse-eyes flex items-center justify-center text-[9px] font-mono text-background/80" style={{ opacity }}>
+                      {time > 0 ? `${time.toFixed(1)}s` : ''}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Gaze zone sequence timeline */}
+            {pattern.eyes.zoneTimeline && pattern.eyes.zoneTimeline.length > 0 && (
+              <div>
+                <p className="text-[10px] text-muted-foreground mb-1">Look Path (zone sequence over time)</p>
+                <div className="flex flex-wrap gap-1">
+                  {pattern.eyes.zoneTimeline.map((zt, i) => (
+                    <div key={i} className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-mse-eyes/15 border border-mse-eyes/20 text-[9px] font-mono">
+                      <span className="text-mse-eyes font-bold">{ZONE_LABELS[zt.zone] ?? '?'}</span>
+                      <span className="text-muted-foreground">{zt.time}s</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Full zone sequence text */}
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1">Full Sequence</p>
+              <p className="text-[10px] font-mono text-mse-eyes/70 leading-relaxed break-all">
+                {pattern.eyes.zoneSequence.map(z => ZONE_LABELS[z] ?? '?').join(' → ')}
+              </p>
             </div>
           </div>
         </CardContent>
