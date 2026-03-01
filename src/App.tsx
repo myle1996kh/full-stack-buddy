@@ -107,7 +107,7 @@ function AppRoutes() {
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
 
-      <Route path="/auth" element={<Navigate to={homeRedirect} replace />} />
+      <Route path="/auth/*" element={<Navigate to={homeRedirect} replace />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
