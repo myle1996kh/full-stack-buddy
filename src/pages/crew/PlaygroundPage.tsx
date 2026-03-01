@@ -9,6 +9,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
 import { useToast } from '@/hooks/use-toast';
 import { compareMSE, type MSEScores } from '@/engine/detection/mseComparer';
+import { comparePoseLandmarks, type PoseSimilarityResult } from '@/engine/detection/poseComparer';
+import { detectPose, ensureMediaPipe } from '@/engine/mediapipe/mediapipeService';
 import type { MSEFrame, MSEPattern } from '@/engine/detection/mseDetector';
 import { getScoreLevel, getScoreLevelLabel } from '@/types/modules';
 import { Link } from 'react-router-dom';
@@ -39,16 +41,46 @@ export default function PlaygroundPage() {
   const [scores, setScores] = useState<MSEScores | null>(null);
   const [showOverlay, setShowOverlay] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [livePoseSim, setLivePoseSim] = useState<PoseSimilarityResult | null>(null);
   const liveMotion = useRef(0);
   const liveVolume = useRef(0);
   const liveGazeZone = useRef('—');
+  const mediaPipeReady = useRef(false);
+  const frameCounter = useRef(0);
+
+  // Pre-load MediaPipe for real-time comparison
+  useEffect(() => {
+    ensureMediaPipe().then(() => { mediaPipeReady.current = true; }).catch(() => {});
+  }, []);
 
   const onFrame = useCallback((frame: MSEFrame) => {
     liveMotion.current = Math.round(frame.motion.motionLevel * 100);
     liveVolume.current = Math.round(frame.sound.volume);
     liveGazeZone.current = frame.gaze.zone;
     setLiveFrame(frame);
-  }, []);
+
+    // Real-time pose comparison every 5th frame
+    frameCounter.current++;
+    if (mediaPipeReady.current && lesson?.reference_pattern?.motion?.poseSnapshots?.length && frameCounter.current % 5 === 0) {
+      const videoEl = cam.videoRef.current;
+      if (videoEl) {
+        try {
+          const poseResult = detectPose(videoEl, performance.now());
+          if (poseResult?.landmarks?.length) {
+            const lmk = poseResult.landmarks[0].map(l => ({ x: l.x, y: l.y, z: l.z }));
+            // Compare against closest reference snapshot
+            const refSnaps = lesson.reference_pattern.motion.poseSnapshots;
+            const refIdx = Math.min(
+              Math.floor((frameCounter.current / 30) % refSnaps.length),
+              refSnaps.length - 1
+            );
+            const sim = comparePoseLandmarks(refSnaps[refIdx].landmarks, lmk);
+            setLivePoseSim(sim);
+          }
+        } catch { /* ignore */ }
+      }
+    }
+  }, [lesson]);
 
   const cam = useCamera({ onFrame });
 
@@ -305,6 +337,41 @@ export default function PlaygroundPage() {
               </div>
             </div>
           ))}
+
+          {/* Real-time Pose Similarity */}
+          {playState === 'practicing' && livePoseSim && (
+            <div className="pt-2 border-t border-border/30 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium">🦴 Pose Similarity</span>
+                <span className="font-mono text-sm font-bold" style={{
+                  color: livePoseSim.overall >= 70 ? 'hsl(var(--mse-motion))' : livePoseSim.overall >= 40 ? 'hsl(48, 96%, 53%)' : 'hsl(0, 84%, 60%)'
+                }}>
+                  {livePoseSim.overall}%
+                </span>
+              </div>
+              <div className="grid grid-cols-4 gap-1">
+                {Object.entries(livePoseSim.perJoint).map(([joint, val]) => (
+                  <div key={joint} className="text-center">
+                    <div className="text-[8px] text-muted-foreground truncate">{joint.replace(/([A-Z])/g, ' $1').trim()}</div>
+                    <div className="h-1 rounded-full bg-muted overflow-hidden mt-0.5">
+                      <div
+                        className="h-full rounded-full transition-all duration-300"
+                        style={{
+                          width: `${val}%`,
+                          backgroundColor: val >= 70 ? 'hsl(160, 59%, 42%)' : val >= 40 ? 'hsl(48, 96%, 53%)' : 'hsl(0, 84%, 60%)',
+                        }}
+                      />
+                    </div>
+                    <div className="text-[8px] font-mono text-muted-foreground">{val}%</div>
+                  </div>
+                ))}
+              </div>
+              {livePoseSim.feedback.length > 0 && (
+                <p className="text-[10px] text-muted-foreground">💡 {livePoseSim.feedback[0]}</p>
+              )}
+            </div>
+          )}
+
           <div className="pt-2 border-t border-border/50 flex items-center justify-between">
             <div className="flex items-center gap-2"><Zap className="w-4 h-4 text-mse-consciousness" /><span className="text-sm font-medium">Consciousness</span></div>
             <span className="text-xl font-bold text-mse-consciousness">

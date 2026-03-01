@@ -3,6 +3,7 @@
  */
 
 import type { MSEPattern } from './mseDetector';
+import { compareMultiFramePose } from './poseComparer';
 
 export interface MSEScores {
   overall: number;
@@ -35,21 +36,43 @@ function compareMotion(ref: MSEPattern, learner: MSEPattern) {
   // Compare region profile (cosine similarity)
   const regionSim = cosineSimilarity(ref.motion.regionProfile, learner.motion.regionProfile);
   
-  // Compare timeline shape (DTW-lite: just correlation of downsampled timelines)
+  // Compare timeline shape
   const timelineSim = timelineCorrelation(ref.motion.motionTimeline, learner.motion.motionTimeline);
+
+  // Skeleton-based joint-angle comparison (if landmarks available)
+  const refSnaps = ref.motion.poseSnapshots ?? [];
+  const lrnSnaps = learner.motion.poseSnapshots ?? [];
+  const poseResult = compareMultiFramePose(refSnaps, lrnSnaps);
+  const hasSkeletonData = refSnaps.length > 0 && lrnSnaps.length > 0;
 
   const intensityScore = Math.round(levelSim * 100);
   const regionScore = Math.round(regionSim * 100);
   const timelineScore = Math.round(timelineSim * 100);
-  const score = Math.round((intensityScore * 0.3 + regionScore * 0.3 + timelineScore * 0.4));
+  const skeletonScore = poseResult.overall;
+
+  // Weight skeleton score heavily when available
+  const score = hasSkeletonData
+    ? Math.round(intensityScore * 0.15 + regionScore * 0.15 + timelineScore * 0.2 + skeletonScore * 0.5)
+    : Math.round(intensityScore * 0.3 + regionScore * 0.3 + timelineScore * 0.4);
 
   const feedback: string[] = [];
-  if (intensityScore < 60) feedback.push('Try to match the energy level — move more/less');
-  if (regionScore < 60) feedback.push('Focus on using the same body regions');
+  if (hasSkeletonData) {
+    feedback.push(...poseResult.feedback);
+  }
+  if (intensityScore < 60) feedback.push('Try to match the energy level');
   if (timelineScore < 60) feedback.push('Try to match the timing of movements');
   if (score >= 70) feedback.push('Great motion match! ✓');
 
-  return { score, breakdown: { intensity: intensityScore, regions: regionScore, timing: timelineScore }, feedback };
+  const breakdown: Record<string, number> = { intensity: intensityScore, regions: regionScore, timing: timelineScore };
+  if (hasSkeletonData) {
+    breakdown.skeleton = skeletonScore;
+    // Add per-joint breakdown
+    Object.entries(poseResult.perJoint).forEach(([j, v]) => {
+      breakdown[j] = v;
+    });
+  }
+
+  return { score, breakdown, feedback };
 }
 
 function compareSound(ref: MSEPattern, learner: MSEPattern) {
