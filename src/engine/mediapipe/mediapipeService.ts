@@ -25,32 +25,49 @@ const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmar
 async function loadModels(): Promise<void> {
   const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
 
-  const [pose, face] = await Promise.all([
-    PoseLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: POSE_MODEL, delegate: 'GPU' },
-      runningMode: 'VIDEO',
-      numPoses: 1,
-      minPoseDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    }),
-    FaceLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: FACE_MODEL, delegate: 'GPU' },
-      runningMode: 'VIDEO',
-      numFaces: 1,
-      minFaceDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-      outputFaceBlendshapes: false,
-      outputFacialTransformationMatrixes: false,
-    }),
-  ]);
+  const createWithDelegate = async (delegate: 'GPU' | 'CPU') => {
+    const [pose, face] = await Promise.all([
+      PoseLandmarker.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: POSE_MODEL, delegate },
+        runningMode: 'VIDEO',
+        numPoses: 1,
+        minPoseDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      }),
+      FaceLandmarker.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: FACE_MODEL, delegate },
+        runningMode: 'VIDEO',
+        numFaces: 1,
+        minFaceDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+        outputFaceBlendshapes: false,
+        outputFacialTransformationMatrixes: false,
+      }),
+    ]);
+    return { pose, face };
+  };
 
-  poseInstance = pose;
-  faceInstance = face;
+  try {
+    const { pose, face } = await createWithDelegate('GPU');
+    poseInstance = pose;
+    faceInstance = face;
+  } catch (gpuErr) {
+    console.warn('MediaPipe GPU init failed, falling back to CPU:', gpuErr);
+    const { pose, face } = await createWithDelegate('CPU');
+    poseInstance = pose;
+    faceInstance = face;
+  }
 }
 
 export async function ensureMediaPipe(): Promise<void> {
   if (poseInstance && faceInstance) return;
-  if (!initPromise) initPromise = loadModels();
+  if (!initPromise) {
+    initPromise = loadModels().catch((err) => {
+      // Allow future retries if first init fails
+      initPromise = null;
+      throw err;
+    });
+  }
   return initPromise;
 }
 
