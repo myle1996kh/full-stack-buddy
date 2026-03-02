@@ -29,6 +29,7 @@ export type Database = {
           status: string
           title: string
           updated_at: string
+          video_url: string | null
           weight_eyes: number
           weight_motion: number
           weight_sound: number
@@ -47,6 +48,7 @@ export type Database = {
           status?: string
           title?: string
           updated_at?: string
+          video_url?: string | null
           weight_eyes?: number
           weight_motion?: number
           weight_sound?: number
@@ -65,6 +67,7 @@ export type Database = {
           status?: string
           title?: string
           updated_at?: string
+          video_url?: string | null
           weight_eyes?: number
           weight_motion?: number
           weight_sound?: number

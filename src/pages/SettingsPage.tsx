@@ -3,8 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/authStore';
-import { LogOut, User, Sliders } from 'lucide-react';
+import { LogOut, User, Sliders, Anchor, Users } from 'lucide-react';
 import ModuleConfig from '@/components/config/ModuleConfig';
+import type { UserRole } from '@/types/user';
 
 const tabs = [
   { id: 'profile', label: 'Profile', icon: User },
@@ -14,8 +15,17 @@ const tabs = [
 type TabId = (typeof tabs)[number]['id'];
 
 export default function SettingsPage() {
-  const { user, role, signOut } = useAuthStore();
+  const { user, role, signOut, switchRole } = useAuthStore();
   const [activeTab, setActiveTab] = useState<TabId>('profile');
+  const [switching, setSwitching] = useState(false);
+
+  const handleSwitchRole = async () => {
+    if (!role) return;
+    setSwitching(true);
+    const newRole: UserRole = role === 'captain' ? 'crew' : 'captain';
+    await switchRole(newRole);
+    setSwitching(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -71,6 +81,31 @@ export default function SettingsPage() {
                   <span className="text-muted-foreground">Role</span>
                   <span className="capitalize">{role === 'captain' ? '🧑‍✈️ Captain' : '🚣 Crew'}</span>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Role Switch */}
+            <Card className="glass">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  {role === 'captain' ? <Users className="w-4 h-4" /> : <Anchor className="w-4 h-4" />}
+                  Switch Role
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Currently: <span className="font-medium text-foreground capitalize">{role === 'captain' ? '🧑‍✈️ Captain' : '🚣 Crew'}</span>. 
+                  Switch to <span className="font-medium text-foreground">{role === 'captain' ? '🚣 Crew' : '🧑‍✈️ Captain'}</span> mode.
+                </p>
+                <Button
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={handleSwitchRole}
+                  disabled={switching}
+                >
+                  {role === 'captain' ? <Users className="w-4 h-4" /> : <Anchor className="w-4 h-4" />}
+                  {switching ? 'Switching...' : `Switch to ${role === 'captain' ? 'Crew' : 'Captain'}`}
+                </Button>
               </CardContent>
             </Card>
 

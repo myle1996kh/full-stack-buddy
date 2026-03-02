@@ -44,10 +44,14 @@ export default function ReviewPage() {
   const [weights, setWeights] = useState({ motion: 1, sound: 1, eyes: 1 });
   const [saving, setSaving] = useState(false);
 
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+
   useEffect(() => {
     const raw = sessionStorage.getItem('mse-recorded-pattern');
+    const vid = sessionStorage.getItem('mse-recorded-video-url');
     if (raw) {
       setPattern(JSON.parse(raw));
+      if (vid) setVideoUrl(vid);
     } else {
       navigate('/captain/record');
     }
@@ -74,14 +78,16 @@ export default function ReviewPage() {
       weight_sound: weights.sound,
       weight_eyes: weights.eyes,
       reference_pattern: pattern as any,
+      video_url: videoUrl,
       status,
-    });
+    } as any);
 
     setSaving(false);
     if (error) {
       toast({ title: 'Error saving', description: error.message, variant: 'destructive' });
     } else {
       sessionStorage.removeItem('mse-recorded-pattern');
+      sessionStorage.removeItem('mse-recorded-video-url');
       toast({ title: status === 'published' ? 'Lesson published!' : 'Draft saved!' });
       navigate('/captain/lessons');
     }

@@ -25,6 +25,7 @@ interface Lesson {
   weight_eyes: number;
   reference_pattern: MSEPattern;
   captain_id: string;
+  video_url?: string | null;
 }
 
 type PlayState = 'select' | 'ready' | 'practicing' | 'results';
@@ -47,8 +48,8 @@ export default function PlaygroundPage() {
   const liveGazeZone = useRef('—');
   const mediaPipeReady = useRef(false);
   const frameCounter = useRef(0);
+  const refVideoRef = useRef<HTMLVideoElement>(null);
 
-  // Pre-load MediaPipe for real-time comparison
   useEffect(() => {
     ensureMediaPipe().then(() => { mediaPipeReady.current = true; }).catch(() => {});
   }, []);
@@ -59,7 +60,6 @@ export default function PlaygroundPage() {
     liveGazeZone.current = frame.gaze.zone;
     setLiveFrame(frame);
 
-    // Real-time pose comparison every 5th frame
     frameCounter.current++;
     if (mediaPipeReady.current && lesson?.reference_pattern?.motion?.poseSnapshots?.length && frameCounter.current % 5 === 0) {
       const videoEl = cam.videoRef.current;
@@ -68,7 +68,6 @@ export default function PlaygroundPage() {
           const poseResult = detectPose(videoEl, performance.now());
           if (poseResult?.landmarks?.length) {
             const lmk = poseResult.landmarks[0].map(l => ({ x: l.x, y: l.y, z: l.z }));
-            // Compare against closest reference snapshot
             const refSnaps = lesson.reference_pattern.motion.poseSnapshots;
             const refIdx = Math.min(
               Math.floor((frameCounter.current / 30) % refSnaps.length),
@@ -84,7 +83,6 @@ export default function PlaygroundPage() {
 
   const cam = useCamera({ onFrame });
 
-  // Fetch lessons list or single lesson
   useEffect(() => {
     if (id) {
       supabase.from('lessons').select('*').eq('id', id).single().then(({ data }) => {
@@ -108,6 +106,11 @@ export default function PlaygroundPage() {
   const handleStart = async () => {
     await cam.startCamera();
     await cam.startDetection();
+    // Play reference video in sync
+    if (refVideoRef.current) {
+      refVideoRef.current.currentTime = 0;
+      refVideoRef.current.play().catch(() => {});
+    }
     setPlayState('practicing');
   };
 
@@ -115,6 +118,8 @@ export default function PlaygroundPage() {
     cam.stopDetection();
     const pattern = cam.extractPattern();
     cam.stopCamera();
+    // Pause reference video
+    if (refVideoRef.current) refVideoRef.current.pause();
 
     if (pattern && lesson) {
       const result = compareMSE(lesson.reference_pattern, pattern, {
@@ -125,7 +130,6 @@ export default function PlaygroundPage() {
       setScores(result);
       setPlayState('results');
 
-      // Save session to DB
       if (user) {
         setSaving(true);
         await supabase.from('sessions').insert({
@@ -161,6 +165,9 @@ export default function PlaygroundPage() {
                 <CardContent className="p-4">
                   <h3 className="font-medium">{l.title}</h3>
                   <p className="text-xs text-muted-foreground mt-1">by {l.captain_name} · {l.difficulty}</p>
+                  {l.video_url && (
+                    <p className="text-[10px] text-primary mt-1">📹 Has reference video</p>
+                  )}
                 </CardContent>
               </Card>
             ))}
@@ -182,7 +189,6 @@ export default function PlaygroundPage() {
       <div className="space-y-4 animate-slide-up">
         <h1 className="text-xl font-bold">📊 Session Results</h1>
 
-        {/* Big score */}
         <Card className="glass">
           <CardContent className="p-8 text-center">
             <Trophy className={`w-10 h-10 mx-auto mb-3 ${levelColors[level]}`} />
@@ -191,7 +197,6 @@ export default function PlaygroundPage() {
           </CardContent>
         </Card>
 
-        {/* Per-metric breakdown */}
         {[
           { key: 'motion' as const, icon: Activity, label: 'Motion', color: 'bg-mse-motion', textColor: 'text-mse-motion' },
           { key: 'sound' as const, icon: Volume2, label: 'Sound', color: 'bg-mse-sound', textColor: 'text-mse-sound' },
@@ -248,29 +253,48 @@ export default function PlaygroundPage() {
 
       {/* Split view */}
       <div className="grid grid-cols-2 gap-3">
-        {/* Reference panel */}
+        {/* Reference panel - Captain's video or data */}
         <Card className="glass overflow-hidden">
           <CardContent className="p-0">
-            <div className="aspect-video bg-muted/30 flex items-center justify-center p-3">
-              <div className="text-center w-full">
-                <p className="text-[10px] text-muted-foreground mb-2">🧑‍✈️ Captain Reference</p>
-                {lesson && (
-                  <div className="space-y-1.5 text-[10px]">
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Motion</span>
-                      <span>{Math.round((lesson.reference_pattern?.motion?.avgMotionLevel || 0) * 100)}%</span>
-                    </div>
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Pitch</span>
-                      <span>{lesson.reference_pattern?.sound?.avgPitch || 0}Hz</span>
-                    </div>
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Gaze</span>
-                      <span>{lesson.reference_pattern?.eyes?.primaryZone || '—'}</span>
-                    </div>
+            <div className="aspect-video bg-muted/30 relative">
+              {lesson?.video_url ? (
+                <video
+                  ref={refVideoRef}
+                  src={lesson.video_url}
+                  className="w-full h-full object-cover"
+                  playsInline
+                  loop
+                  muted={playState !== 'practicing'}
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center p-3">
+                  <div className="text-center w-full">
+                    <p className="text-[10px] text-muted-foreground mb-2">🧑‍✈️ Captain Reference</p>
+                    {lesson && (
+                      <div className="space-y-1.5 text-[10px]">
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Motion</span>
+                          <span>{Math.round((lesson.reference_pattern?.motion?.avgMotionLevel || 0) * 100)}%</span>
+                        </div>
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Pitch</span>
+                          <span>{lesson.reference_pattern?.sound?.avgPitch || 0}Hz</span>
+                        </div>
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Gaze</span>
+                          <span>{lesson.reference_pattern?.eyes?.primaryZone || '—'}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
+              <p className="absolute top-1 left-1 text-[10px] text-muted-foreground bg-background/60 px-1 rounded">🧑‍✈️ Captain</p>
+              {playState !== 'practicing' && lesson?.video_url && (
+                <div className="absolute inset-0 flex items-center justify-center bg-background/30">
+                  <Play className="w-8 h-8 text-primary/60" />
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -286,7 +310,6 @@ export default function PlaygroundPage() {
                 playsInline
                 style={{ transform: 'scaleX(-1)' }}
               />
-              {/* MediaPipe overlay */}
               {showOverlay && (
                 <LandmarkOverlay
                   videoRef={cam.videoRef as React.RefObject<HTMLVideoElement>}
@@ -344,7 +367,7 @@ export default function PlaygroundPage() {
               <div className="flex items-center justify-between text-xs">
                 <span className="font-medium">🦴 Pose Similarity</span>
                 <span className="font-mono text-sm font-bold" style={{
-                  color: livePoseSim.overall >= 70 ? 'hsl(var(--mse-motion))' : livePoseSim.overall >= 40 ? 'hsl(48, 96%, 53%)' : 'hsl(0, 84%, 60%)'
+                  color: livePoseSim.overall >= 70 ? 'hsl(var(--mse-motion))' : livePoseSim.overall >= 40 ? 'hsl(var(--score-yellow))' : 'hsl(var(--destructive))'
                 }}>
                   {livePoseSim.overall}%
                 </span>
@@ -358,7 +381,7 @@ export default function PlaygroundPage() {
                         className="h-full rounded-full transition-all duration-300"
                         style={{
                           width: `${val}%`,
-                          backgroundColor: val >= 70 ? 'hsl(160, 59%, 42%)' : val >= 40 ? 'hsl(48, 96%, 53%)' : 'hsl(0, 84%, 60%)',
+                          backgroundColor: val >= 70 ? 'hsl(var(--score-green))' : val >= 40 ? 'hsl(var(--score-yellow))' : 'hsl(var(--destructive))',
                         }}
                       />
                     </div>
@@ -369,6 +392,14 @@ export default function PlaygroundPage() {
               {livePoseSim.feedback.length > 0 && (
                 <p className="text-[10px] text-muted-foreground">💡 {livePoseSim.feedback[0]}</p>
               )}
+            </div>
+          )}
+
+          {/* Live pose label */}
+          {playState === 'practicing' && liveFrame && (
+            <div className="flex items-center justify-between text-xs pt-1 border-t border-border/30">
+              <span className="text-muted-foreground">Pose</span>
+              <span className="font-mono capitalize text-mse-consciousness">{liveFrame.motion.pose}</span>
             </div>
           )}
 
