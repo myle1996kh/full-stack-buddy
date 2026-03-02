@@ -124,7 +124,7 @@ export default function PlaygroundPage() {
 
   const handleStop = async () => {
     cam.stopDetection();
-    const pattern = cam.extractPattern();
+    const pattern = await cam.extractPattern();
     cam.stopCamera();
     // Pause reference video
     if (refVideoRef.current) refVideoRef.current.pause();

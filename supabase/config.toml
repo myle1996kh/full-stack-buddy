@@ -1,1 +1,4 @@
 project_id = "doqvakuxptbdixequpsp"
+
+[functions.classify-sound]
+verify_jwt = false

@@ -10,10 +10,10 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
 import { useToast } from '@/hooks/use-toast';
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, Cell } from 'recharts';
 import type { MSEPattern } from '@/engine/detection/mseDetector';
 import type { PoseLabel } from '@/engine/detection/motionDetector';
 import PoseSkeletonChart from '@/components/charts/PoseSkeletonChart';
+import ReviewSoundSection from '@/components/review/ReviewSoundSection';
 
 const POSE_COLORS: Record<PoseLabel, string> = {
   still: 'hsl(220, 9%, 46%)',
@@ -43,7 +43,6 @@ export default function ReviewPage() {
   const [difficulty, setDifficulty] = useState('beginner');
   const [weights, setWeights] = useState({ motion: 1, sound: 1, eyes: 1 });
   const [saving, setSaving] = useState(false);
-
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -95,20 +94,12 @@ export default function ReviewPage() {
 
   if (!pattern) return null;
 
-  // Prepare sound chart data
-  const soundData = pattern.sound.pitchContour.map((p, i) => ({
-    t: i,
-    pitch: Math.round(p),
-    volume: Math.round((pattern.sound.volumeContour[i] ?? 0) * 100),
-  }));
-
-  // Prepare pose bar data
+  const totalPoseFrames = pattern.motion.totalFrames || pattern.frameCount;
   const poseData = (Object.keys(POSE_LABELS) as PoseLabel[]).map(pose => ({
     pose: POSE_LABELS[pose],
     count: pattern.motion.poseCounts?.[pose] ?? 0,
     color: POSE_COLORS[pose],
   }));
-  const totalPoseFrames = pattern.motion.totalFrames || pattern.frameCount;
 
   return (
     <div className="space-y-4 animate-slide-up">
@@ -202,7 +193,7 @@ export default function ReviewPage() {
               </div>
             )}
 
-            {/* Pose Skeleton Visualization */}
+            {/* Pose Skeleton */}
             <div>
               <p className="text-[10px] text-muted-foreground mb-1">Pose Skeleton (MediaPipe)</p>
               <PoseSkeletonChart snapshots={pattern.motion.poseSnapshots ?? []} />
@@ -220,38 +211,8 @@ export default function ReviewPage() {
             </div>
           </div>
 
-          {/* ── SOUND ── */}
-          <div className="p-3 rounded-lg bg-muted/30 border-l-2 border-mse-sound space-y-3">
-            <div className="flex items-center gap-2 text-sm">
-              <Volume2 className="w-4 h-4 text-mse-sound" />
-              <span className="font-medium">Sound</span>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-              <span>Pitch: {pattern.sound.avgPitch}Hz</span>
-              <span>Volume: {pattern.sound.avgVolume}</span>
-              <span>Rate: {pattern.sound.syllableRate}/s</span>
-            </div>
-            {/* Pitch + Volume line chart */}
-            {soundData.length > 0 && (
-              <ResponsiveContainer width="100%" height={140}>
-                <LineChart data={soundData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 14%, 16%)" />
-                  <XAxis dataKey="t" tick={{ fill: 'hsl(215, 14%, 50%)', fontSize: 8 }} tickLine={false} axisLine={false} />
-                  <YAxis yAxisId="pitch" tick={{ fill: 'hsl(215, 14%, 50%)', fontSize: 8 }} tickLine={false} axisLine={false} />
-                  <YAxis yAxisId="vol" orientation="right" domain={[0, 100]} tick={{ fill: 'hsl(215, 14%, 50%)', fontSize: 8 }} tickLine={false} axisLine={false} />
-                  <Tooltip
-                    contentStyle={{ background: 'hsl(220, 18%, 10%)', border: '1px solid hsl(220, 14%, 18%)', borderRadius: 8, fontSize: 11 }}
-                  />
-                  <Line yAxisId="pitch" type="monotone" dataKey="pitch" name="Pitch Hz" stroke="hsl(0, 84%, 60%)" strokeWidth={1.5} dot={false} />
-                  <Line yAxisId="vol" type="monotone" dataKey="volume" name="Volume %" stroke="hsl(0, 60%, 45%)" strokeWidth={1} dot={false} strokeDasharray="3 2" />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-            <div className="flex gap-3 text-[10px] text-muted-foreground">
-              <div className="flex items-center gap-1"><div className="w-3 h-0.5 bg-mse-sound rounded" /> Pitch</div>
-              <div className="flex items-center gap-1"><div className="w-3 h-0.5 bg-mse-sound/50 rounded border-dashed" /> Volume</div>
-            </div>
-          </div>
+          {/* ── SOUND (refactored to component) ── */}
+          <ReviewSoundSection pattern={pattern} />
 
           {/* ── EYES ── */}
           <div className="p-3 rounded-lg bg-muted/30 border-l-2 border-mse-eyes space-y-3">
@@ -284,7 +245,7 @@ export default function ReviewPage() {
             {/* Gaze zone sequence timeline */}
             {pattern.eyes.zoneTimeline && pattern.eyes.zoneTimeline.length > 0 && (
               <div>
-                <p className="text-[10px] text-muted-foreground mb-1">Look Path (zone sequence over time)</p>
+                <p className="text-[10px] text-muted-foreground mb-1">Look Path</p>
                 <div className="flex flex-wrap gap-1">
                   {pattern.eyes.zoneTimeline.map((zt, i) => (
                     <div key={i} className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-mse-eyes/15 border border-mse-eyes/20 text-[9px] font-mono">
@@ -296,7 +257,7 @@ export default function ReviewPage() {
               </div>
             )}
 
-            {/* Full zone sequence text */}
+            {/* Full zone sequence */}
             <div>
               <p className="text-[10px] text-muted-foreground mb-1">Full Sequence</p>
               <p className="text-[10px] font-mono text-mse-eyes/70 leading-relaxed break-all">
