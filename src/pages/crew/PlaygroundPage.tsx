@@ -43,6 +43,7 @@ export default function PlaygroundPage() {
   const [showOverlay, setShowOverlay] = useState(true);
   const [saving, setSaving] = useState(false);
   const [livePoseSim, setLivePoseSim] = useState<PoseSimilarityResult | null>(null);
+  const [mpStatus, setMpStatus] = useState({ pose: false, face: false });
   const liveMotion = useRef(0);
   const liveVolume = useRef(0);
   const liveGazeZone = useRef('—');
@@ -315,6 +316,7 @@ export default function PlaygroundPage() {
                   videoRef={cam.videoRef as React.RefObject<HTMLVideoElement>}
                   active={cam.active}
                   mirrored={true}
+                  onResults={(pose, face) => setMpStatus({ pose: Boolean(pose?.landmarks?.length), face: Boolean(face?.faceLandmarks?.length) })}
                 />
               )}
               {!cam.active && playState === 'practicing' && (
@@ -332,6 +334,11 @@ export default function PlaygroundPage() {
               >
                 <Layers className="w-3 h-3" />
               </button>
+              {showOverlay && cam.active && (
+                <div className="absolute bottom-1 left-1 text-[9px] px-1.5 py-0.5 rounded bg-background/70 border border-border/50 font-mono">
+                  MP P:{mpStatus.pose ? '✓' : '…'} F:{mpStatus.face ? '✓' : '…'}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

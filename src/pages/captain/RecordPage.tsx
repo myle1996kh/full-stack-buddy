@@ -15,6 +15,7 @@ export default function RecordPage() {
   const [liveFrame, setLiveFrame] = useState<MSEFrame | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [showOverlay, setShowOverlay] = useState(true);
+  const [mpStatus, setMpStatus] = useState({ pose: false, face: false });
 
   const onFrame = useCallback((frame: MSEFrame) => {
     setLiveFrame(frame);
@@ -93,6 +94,7 @@ export default function RecordPage() {
                 videoRef={camera.videoRef as React.RefObject<HTMLVideoElement>}
                 active={camera.active}
                 mirrored={true}
+                onResults={(pose, face) => setMpStatus({ pose: Boolean(pose?.landmarks?.length), face: Boolean(face?.faceLandmarks?.length) })}
               />
             )}
             {cameraError && (
@@ -121,6 +123,12 @@ export default function RecordPage() {
             <div className="absolute top-3 right-3 flex items-center gap-2 bg-destructive/90 text-destructive-foreground px-3 py-1.5 rounded-full text-xs font-medium">
               <Circle className="w-2 h-2 fill-current animate-pulse-glow" />
               REC {formatTime(camera.elapsed)}
+            </div>
+          )}
+
+          {showOverlay && camera.active && (
+            <div className="absolute bottom-3 left-3 text-[10px] px-2 py-1 rounded bg-background/70 border border-border/50 font-mono">
+              MP · Pose {mpStatus.pose ? '✓' : '…'} · Face {mpStatus.face ? '✓' : '…'}
             </div>
           )}
         </CardContent>
@@ -161,6 +169,13 @@ export default function RecordPage() {
               <span className="text-muted-foreground">Face</span>
               <span className={`ml-auto font-mono ${faceDetected ? 'text-mse-motion' : 'text-muted-foreground'}`}>
                 {faceDetected ? 'Detected ✓' : 'Not found'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-xs col-span-2">
+              <Layers className="w-3.5 h-3.5 text-primary" />
+              <span className="text-muted-foreground">MediaPipe</span>
+              <span className="ml-auto font-mono">
+                Pose {mpStatus.pose ? '✓' : '…'} · Face {mpStatus.face ? '✓' : '…'}
               </span>
             </div>
             <div className="flex items-center gap-2 text-xs col-span-2 pt-1 border-t border-border/30">

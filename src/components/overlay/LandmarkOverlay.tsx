@@ -89,7 +89,7 @@ export default function LandmarkOverlay({ videoRef, active, width, height, mirro
   return (
     <canvas
       ref={canvasRef}
-      className="absolute inset-0 w-full h-full pointer-events-none"
+      className="absolute inset-0 z-10 w-full h-full pointer-events-none"
       style={{ transform: mirrored ? undefined : undefined }}
     />
   );
