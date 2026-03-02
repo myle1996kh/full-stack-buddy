@@ -36,7 +36,7 @@ export default function RecordPage() {
   const handleStopRecording = async () => {
     camera.stopDetection();
     const videoBlob = await camera.stopRecording();
-    const pattern = camera.extractPattern();
+    const pattern = await camera.extractPattern();
 
     if (pattern && user) {
       // Upload reference video to storage

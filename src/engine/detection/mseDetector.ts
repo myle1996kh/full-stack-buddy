@@ -6,8 +6,9 @@
 import { AudioAnalyzer, type AudioFrame } from './audioAnalyzer';
 import { MotionDetector, type MotionFrame, type PoseLabel } from './motionDetector';
 import { GazeDetector, type GazeFrame } from './gazeDetector';
+import { SoundClassifier, type SoundEvent } from './soundClassifier';
 import { ensureMediaPipe, detectPose } from '@/engine/mediapipe/mediapipeService';
-import type { NormalizedLandmark } from '@mediapipe/tasks-vision';
+import type { SpectralFeatures, SoundEventLabel } from './audioAnalyzer';
 
 export interface MSEFrame {
   timestamp: number;
@@ -24,10 +25,16 @@ export interface PoseSegment {
 }
 
 export interface PoseLandmarkSnapshot {
-  /** Normalized 0-1 coordinates for each of the 33 MediaPipe landmarks */
   landmarks: { x: number; y: number; z: number }[];
   pose: PoseLabel;
   frameIndex: number;
+}
+
+export interface OnsetEvent {
+  frameIndex: number;
+  timestamp: number;
+  label: SoundEventLabel;
+  confidence: 'heuristic' | 'ai';
 }
 
 export interface MSEPattern {
@@ -39,7 +46,6 @@ export interface MSEPattern {
     poseCounts: Record<PoseLabel, number>;
     poseSegments: PoseSegment[];
     totalFrames: number;
-    /** Sampled keyframe pose landmarks from MediaPipe */
     poseSnapshots: PoseLandmarkSnapshot[];
   };
   sound: {
@@ -48,6 +54,19 @@ export interface MSEPattern {
     avgPitch: number;
     avgVolume: number;
     syllableRate: number;
+    // New spectral fingerprint data
+    spectralCentroidContour: number[];
+    spectralZcrContour: number[];
+    spectralRolloffContour: number[];
+    avgCentroid: number;
+    avgZcr: number;
+    // Onset / beat data
+    onsetTimestamps: number[];  // relative ms from start
+    onsetCount: number;
+    beatsPerMinute: number;
+    // Event labels
+    eventSummary: Record<SoundEventLabel, number>;
+    events: SoundEvent[];
   };
   eyes: {
     zoneDwellTimes: Record<string, number>;
@@ -64,6 +83,7 @@ export class MSEDetector {
   private motionDetector = new MotionDetector();
   private audioAnalyzer = new AudioAnalyzer();
   private gazeDetector = new GazeDetector();
+  private soundClassifier = new SoundClassifier();
   private frames: MSEFrame[] = [];
   private running = false;
   private animFrameId: number | null = null;
@@ -79,8 +99,8 @@ export class MSEDetector {
     this.frames = [];
     this.poseLandmarkBuffer = [];
     this.frameCounter = 0;
+    this.soundClassifier.reset();
 
-    // Try to ensure MediaPipe is ready before session starts (fallback to async retry)
     const ready = await Promise.race<boolean>([
       ensureMediaPipe().then(() => true).catch(() => false),
       new Promise<boolean>(resolve => setTimeout(() => resolve(false), 7000)),
@@ -114,6 +134,9 @@ export class MSEDetector {
     const sound = this.audioAnalyzer.getFrame();
     const gaze = this.gazeDetector.processVideoFrame(this.videoEl);
 
+    // Feed sound frame to classifier
+    this.soundClassifier.addFrame(sound, this.frameCounter);
+
     // Capture MediaPipe pose landmarks every 10th frame
     if (this.mediaPipeReady && this.frameCounter % 10 === 0) {
       try {
@@ -130,26 +153,30 @@ export class MSEDetector {
     }
     this.frameCounter++;
 
-    const frame: MSEFrame = {
-      timestamp: Date.now(),
-      motion,
-      sound,
-      gaze,
-    };
-
+    const frame: MSEFrame = { timestamp: Date.now(), motion, sound, gaze };
     this.frames.push(frame);
     this.onFrame?.(frame);
 
     this.animFrameId = requestAnimationFrame(this.tick);
   };
 
-  extractPattern(): MSEPattern {
+  async extractPattern(): Promise<MSEPattern> {
+    // Flush pending AI classifications before extracting
+    await this.soundClassifier.flush();
+    return this.buildPattern();
+  }
+
+  /** Synchronous version for cases where we don't need AI labels */
+  extractPatternSync(): MSEPattern {
+    return this.buildPattern();
+  }
+
+  private buildPattern(): MSEPattern {
     const frames = this.frames;
-    if (frames.length === 0) {
-      return this.emptyPattern();
-    }
+    if (frames.length === 0) return this.emptyPattern();
 
     const duration = (frames[frames.length - 1].timestamp - frames[0].timestamp) / 1000;
+    const startTime = frames[0].timestamp;
 
     // Motion pattern
     const motionLevels = frames.map(f => f.motion.motionLevel);
@@ -174,14 +201,13 @@ export class MSEDetector {
       }
     });
 
-    // Sound pattern
+    // Sound pattern (basic)
     const pitchContour = frames.map(f => f.sound.pitch);
     const volumeContour = frames.map(f => f.sound.volume);
     const voicedPitches = pitchContour.filter(p => p > 0);
     const avgPitch = voicedPitches.length > 0 ? voicedPitches.reduce((a, b) => a + b, 0) / voicedPitches.length : 0;
     const avgVolume = volumeContour.reduce((a, b) => a + b, 0) / volumeContour.length;
 
-    // Estimate syllable rate from volume peaks
     let peaks = 0;
     for (let i = 1; i < volumeContour.length - 1; i++) {
       if (volumeContour[i] > volumeContour[i - 1] && volumeContour[i] > volumeContour[i + 1] && volumeContour[i] > avgVolume * 0.5) {
@@ -190,12 +216,44 @@ export class MSEDetector {
     }
     const syllableRate = duration > 0 ? peaks / duration : 0;
 
+    // Spectral fingerprint contours
+    const spectralCentroidContour = frames.map(f => f.sound.spectral.centroid);
+    const spectralZcrContour = frames.map(f => f.sound.spectral.zcr);
+    const spectralRolloffContour = frames.map(f => f.sound.spectral.rolloff);
+    const avgCentroid = spectralCentroidContour.reduce((a, b) => a + b, 0) / spectralCentroidContour.length;
+    const avgZcr = spectralZcrContour.reduce((a, b) => a + b, 0) / spectralZcrContour.length;
+
+    // Onset events
+    const onsetTimestamps: number[] = [];
+    frames.forEach(f => {
+      if (f.sound.isOnset) {
+        onsetTimestamps.push(f.timestamp - startTime);
+      }
+    });
+    const onsetCount = onsetTimestamps.length;
+
+    // BPM estimation from onset intervals
+    let beatsPerMinute = 0;
+    if (onsetTimestamps.length > 2) {
+      const intervals: number[] = [];
+      for (let i = 1; i < onsetTimestamps.length; i++) {
+        intervals.push(onsetTimestamps[i] - onsetTimestamps[i - 1]);
+      }
+      const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+      if (avgInterval > 0) {
+        beatsPerMinute = Math.round(60000 / avgInterval);
+      }
+    }
+
+    // Sound events from classifier
+    const events = this.soundClassifier.getEvents();
+    const eventSummary = this.soundClassifier.getSummary();
+
     // Eyes pattern
     const zoneDwellTimes: Record<string, number> = {};
     const zoneSequence: string[] = [];
     const zoneTimeline: { time: number; zone: string }[] = [];
     let faceDetectedCount = 0;
-    const startTime = frames[0].timestamp;
 
     frames.forEach(f => {
       const zone = f.gaze.zone;
@@ -210,14 +268,12 @@ export class MSEDetector {
     const primaryZone = Object.entries(zoneDwellTimes)
       .sort(([, a], [, b]) => b - a)[0]?.[0] || 'center';
 
-    // Downsample timelines to max 100 points
-    const downsample = (arr: number[], maxPoints: number = 100) => {
+    // Downsample
+    const downsample = (arr: number[], maxPoints = 100) => {
       if (arr.length <= maxPoints) return arr;
       const step = Math.ceil(arr.length / maxPoints);
       const result: number[] = [];
-      for (let i = 0; i < arr.length; i += step) {
-        result.push(arr[i]);
-      }
+      for (let i = 0; i < arr.length; i += step) result.push(arr[i]);
       return result;
     };
 
@@ -226,41 +282,36 @@ export class MSEDetector {
       ? Array.from({ length: 50 }, (_, i) => centroidPath[Math.floor(i * centroidPath.length / 50)])
       : centroidPath;
 
-    // Sample up to 10 evenly-spaced pose snapshots
+    // Sample pose snapshots
     const maxSnapshots = 10;
     let poseSnapshots: PoseLandmarkSnapshot[] = [];
     if (this.poseLandmarkBuffer.length <= maxSnapshots) {
       poseSnapshots = [...this.poseLandmarkBuffer];
     } else {
       const step = Math.floor(this.poseLandmarkBuffer.length / maxSnapshots);
-      for (let i = 0; i < maxSnapshots; i++) {
-        poseSnapshots.push(this.poseLandmarkBuffer[i * step]);
-      }
+      for (let i = 0; i < maxSnapshots; i++) poseSnapshots.push(this.poseLandmarkBuffer[i * step]);
     }
 
     return {
       motion: {
-        avgMotionLevel,
-        regionProfile,
-        motionTimeline: downsample(motionLevels),
-        centroidPath: sampledCentroid,
-        poseCounts,
-        poseSegments: poseSegments.slice(0, 50),
-        totalFrames: frames.length,
-        poseSnapshots,
+        avgMotionLevel, regionProfile, motionTimeline: downsample(motionLevels),
+        centroidPath: sampledCentroid, poseCounts, poseSegments: poseSegments.slice(0, 50),
+        totalFrames: frames.length, poseSnapshots,
       },
       sound: {
-        pitchContour: downsample(pitchContour),
-        volumeContour: downsample(volumeContour),
-        avgPitch: Math.round(avgPitch),
-        avgVolume: Math.round(avgVolume * 10) / 10,
+        pitchContour: downsample(pitchContour), volumeContour: downsample(volumeContour),
+        avgPitch: Math.round(avgPitch), avgVolume: Math.round(avgVolume * 10) / 10,
         syllableRate: Math.round(syllableRate * 10) / 10,
+        spectralCentroidContour: downsample(spectralCentroidContour),
+        spectralZcrContour: downsample(spectralZcrContour),
+        spectralRolloffContour: downsample(spectralRolloffContour),
+        avgCentroid: Math.round(avgCentroid), avgZcr: Math.round(avgZcr * 1000) / 1000,
+        onsetTimestamps, onsetCount, beatsPerMinute,
+        eventSummary, events: events.slice(0, 200),
       },
       eyes: {
-        zoneDwellTimes,
-        zoneSequence: zoneSequence.slice(0, 100),
-        zoneTimeline: zoneTimeline.slice(0, 100),
-        primaryZone,
+        zoneDwellTimes, zoneSequence: zoneSequence.slice(0, 100),
+        zoneTimeline: zoneTimeline.slice(0, 100), primaryZone,
         faceDetectedRatio: faceDetectedCount / frames.length,
       },
       duration: Math.round(duration * 10) / 10,
@@ -268,28 +319,29 @@ export class MSEDetector {
     };
   }
 
-  getFrames(): MSEFrame[] {
-    return [...this.frames];
-  }
-
-  getLatestFrame(): MSEFrame | null {
-    return this.frames.length > 0 ? this.frames[this.frames.length - 1] : null;
-  }
+  getFrames(): MSEFrame[] { return [...this.frames]; }
+  getLatestFrame(): MSEFrame | null { return this.frames.length > 0 ? this.frames[this.frames.length - 1] : null; }
 
   destroy(): void {
     this.stop();
     this.audioAnalyzer.destroy();
     this.motionDetector.reset();
+    this.soundClassifier.reset();
     this.frames = [];
   }
 
   private emptyPattern(): MSEPattern {
     return {
       motion: { avgMotionLevel: 0, regionProfile: new Array(9).fill(0), motionTimeline: [], centroidPath: [], poseCounts: { still: 0, subtle: 0, gesture: 0, movement: 0, active: 0 }, poseSegments: [], totalFrames: 0, poseSnapshots: [] },
-      sound: { pitchContour: [], volumeContour: [], avgPitch: 0, avgVolume: 0, syllableRate: 0 },
+      sound: {
+        pitchContour: [], volumeContour: [], avgPitch: 0, avgVolume: 0, syllableRate: 0,
+        spectralCentroidContour: [], spectralZcrContour: [], spectralRolloffContour: [],
+        avgCentroid: 0, avgZcr: 0, onsetTimestamps: [], onsetCount: 0, beatsPerMinute: 0,
+        eventSummary: { silence: 0, voice: 0, clap: 0, snap: 0, slap: 0, stomp: 0, percussion: 0, unknown: 0 },
+        events: [],
+      },
       eyes: { zoneDwellTimes: {}, zoneSequence: [], zoneTimeline: [], primaryZone: 'center', faceDetectedRatio: 0 },
-      duration: 0,
-      frameCount: 0,
+      duration: 0, frameCount: 0,
     };
   }
 }

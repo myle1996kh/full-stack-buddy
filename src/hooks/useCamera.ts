@@ -58,8 +58,8 @@ export function useCamera(options?: UseCameraOptions) {
     return frames;
   }, []);
 
-  const extractPattern = useCallback((): MSEPattern | null => {
-    return detectorRef.current?.extractPattern() || null;
+  const extractPattern = useCallback(async (): Promise<MSEPattern | null> => {
+    return (await detectorRef.current?.extractPattern()) || null;
   }, []);
 
   const startRecording = useCallback(() => {
