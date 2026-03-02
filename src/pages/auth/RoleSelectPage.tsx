@@ -1,6 +1,6 @@
 import { useAuthStore } from '@/stores/authStore';
 import { Card, CardContent } from '@/components/ui/card';
-import { Anchor, Users, Zap } from 'lucide-react';
+import { Anchor, Users, Zap, Shield } from 'lucide-react';
 import type { UserRole } from '@/types/user';
 
 export default function RoleSelectPage() {

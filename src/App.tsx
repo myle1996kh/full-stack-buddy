@@ -26,6 +26,11 @@ import LibraryPage from './pages/crew/LibraryPage';
 import PlaygroundPage from './pages/crew/PlaygroundPage';
 import ProgressPage from './pages/crew/ProgressPage';
 
+// Admin pages
+import AdminDashboardPage from './pages/admin/AdminDashboardPage';
+import AdminUsersPage from './pages/admin/AdminUsersPage';
+import AdminLessonsPage from './pages/admin/AdminLessonsPage';
+
 // Shared
 import SettingsPage from './pages/SettingsPage';
 
@@ -84,7 +89,7 @@ function AppRoutes() {
     );
   }
 
-  const homeRedirect = role === 'captain' ? '/captain/lessons' : '/crew/library';
+  const homeRedirect = role === 'admin' ? '/admin/dashboard' : role === 'captain' ? '/captain/lessons' : '/crew/library';
 
   return (
     <Routes>
@@ -102,6 +107,11 @@ function AppRoutes() {
         <Route path="/crew/playground" element={<PlaygroundPage />} />
         <Route path="/crew/playground/:id" element={<PlaygroundPage />} />
         <Route path="/crew/progress" element={<ProgressPage />} />
+
+        {/* Admin routes */}
+        <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
+        <Route path="/admin/users" element={<AdminUsersPage />} />
+        <Route path="/admin/lessons" element={<AdminLessonsPage />} />
 
         {/* Shared */}
         <Route path="/settings" element={<SettingsPage />} />
