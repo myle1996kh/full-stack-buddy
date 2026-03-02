@@ -14,6 +14,7 @@ import { detectPose, ensureMediaPipe } from '@/engine/mediapipe/mediapipeService
 import type { MSEFrame, MSEPattern } from '@/engine/detection/mseDetector';
 import { getScoreLevel, getScoreLevelLabel } from '@/types/modules';
 import { Link } from 'react-router-dom';
+import PoseSkeletonChart from '@/components/charts/PoseSkeletonChart';
 
 interface Lesson {
   id: string;
@@ -269,23 +270,26 @@ export default function PlaygroundPage() {
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center p-3">
-                  <div className="text-center w-full">
-                    <p className="text-[10px] text-muted-foreground mb-2">🧑‍✈️ Captain Reference</p>
+                  <div className="text-center w-full space-y-2">
+                    <p className="text-[10px] text-muted-foreground">🧑‍✈️ Captain detected pattern</p>
                     {lesson && (
-                      <div className="space-y-1.5 text-[10px]">
-                        <div className="flex justify-between text-muted-foreground">
-                          <span>Motion</span>
-                          <span>{Math.round((lesson.reference_pattern?.motion?.avgMotionLevel || 0) * 100)}%</span>
+                      <>
+                        <div className="grid grid-cols-3 gap-2 text-[10px]">
+                          <div className="rounded border border-border/40 bg-background/40 px-2 py-1">
+                            <p className="text-muted-foreground">Motion</p>
+                            <p className="font-mono text-mse-motion">{Math.round((lesson.reference_pattern?.motion?.avgMotionLevel || 0) * 100)}%</p>
+                          </div>
+                          <div className="rounded border border-border/40 bg-background/40 px-2 py-1">
+                            <p className="text-muted-foreground">Pitch</p>
+                            <p className="font-mono text-mse-sound">{lesson.reference_pattern?.sound?.avgPitch || 0}Hz</p>
+                          </div>
+                          <div className="rounded border border-border/40 bg-background/40 px-2 py-1">
+                            <p className="text-muted-foreground">Gaze</p>
+                            <p className="font-mono text-mse-eyes">{lesson.reference_pattern?.eyes?.primaryZone || '—'}</p>
+                          </div>
                         </div>
-                        <div className="flex justify-between text-muted-foreground">
-                          <span>Pitch</span>
-                          <span>{lesson.reference_pattern?.sound?.avgPitch || 0}Hz</span>
-                        </div>
-                        <div className="flex justify-between text-muted-foreground">
-                          <span>Gaze</span>
-                          <span>{lesson.reference_pattern?.eyes?.primaryZone || '—'}</span>
-                        </div>
-                      </div>
+                        <p className="text-[9px] text-muted-foreground">Lesson này chưa có video, đang dùng pattern làm mẫu.</p>
+                      </>
                     )}
                   </div>
                 </div>
@@ -343,6 +347,17 @@ export default function PlaygroundPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Captain pattern preview (fallback when lesson has no video) */}
+      {!lesson?.video_url && lesson?.reference_pattern?.motion?.poseSnapshots?.length ? (
+        <Card className="glass">
+          <CardContent className="p-4 space-y-2">
+            <h3 className="text-sm font-medium">Captain Pose Pattern</h3>
+            <p className="text-xs text-muted-foreground">Không có video record — dùng skeleton keyframes để bạn bắt chước theo.</p>
+            <PoseSkeletonChart snapshots={lesson.reference_pattern.motion.poseSnapshots} />
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Live MSE Gauges */}
       <Card className="glass">
