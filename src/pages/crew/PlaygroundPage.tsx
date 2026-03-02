@@ -9,6 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
 import { useToast } from '@/hooks/use-toast';
 import { compareMSE, type MSEScores } from '@/engine/detection/mseComparer';
+import { useModuleStore } from '@/stores/moduleStore';
 import { comparePoseLandmarks, type PoseSimilarityResult } from '@/engine/detection/poseComparer';
 import { detectPose, ensureMediaPipe } from '@/engine/mediapipe/mediapipeService';
 import type { MSEFrame, MSEPattern } from '@/engine/detection/mseDetector';
@@ -130,10 +131,15 @@ export default function PlaygroundPage() {
     if (refVideoRef.current) refVideoRef.current.pause();
 
     if (pattern && lesson) {
+      const moduleConfigs = useModuleStore.getState().configs;
       const result = compareMSE(lesson.reference_pattern, pattern, {
         motion: lesson.weight_motion,
         sound: lesson.weight_sound,
         eyes: lesson.weight_eyes,
+      }, {
+        motion: moduleConfigs.motion.enabled,
+        sound: moduleConfigs.sound.enabled,
+        eyes: moduleConfigs.eyes.enabled,
       });
       setScores(result);
       setPlayState('results');

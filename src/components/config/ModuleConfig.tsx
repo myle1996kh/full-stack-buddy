@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { useModuleStore } from '@/stores/moduleStore';
@@ -30,7 +31,7 @@ const cardVariants = {
 };
 
 export default function ModuleConfig() {
-  const { configs, setActiveMethod, toggleChart, setActiveComparer, setWeight, resetDefaults } = useModuleStore();
+  const { configs, toggleModule, setActiveMethod, toggleChart, setActiveComparer, setWeight, resetDefaults } = useModuleStore();
   const modules = getAllModules();
 
   return (
@@ -54,13 +55,20 @@ export default function ModuleConfig() {
             initial="hidden"
             animate="visible"
           >
-            <Card className={`glass border-l-2 ${colorMap[moduleId]}`}>
+            <Card className={`glass border-l-2 ${colorMap[moduleId]} ${!config.enabled ? 'opacity-50' : ''} transition-opacity`}>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  {iconMap[mod.icon]}
-                  <span>{mod.name}</span>
+                <CardTitle className="text-sm flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    {iconMap[mod.icon]}
+                    <span>{mod.name}</span>
+                  </span>
+                  <Switch
+                    checked={config.enabled}
+                    onCheckedChange={() => toggleModule(moduleId)}
+                  />
                 </CardTitle>
               </CardHeader>
+              {config.enabled && (
               <CardContent className="space-y-4">
                 {/* Detection Method */}
                 <div className="space-y-2">
@@ -133,6 +141,7 @@ export default function ModuleConfig() {
                   />
                 </div>
               </CardContent>
+              )}
             </Card>
           </motion.div>
         );

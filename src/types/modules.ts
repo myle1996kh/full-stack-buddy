@@ -93,6 +93,7 @@ export interface EyesPattern {
 
 // Module config state
 export interface ModuleConfig {
+  enabled: boolean;
   activeMethodId: string;
   enabledChartIds: string[];
   activeComparerId: string;

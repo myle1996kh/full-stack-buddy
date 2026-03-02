@@ -3,6 +3,7 @@ import type { ModuleConfig, MSEModuleId } from '@/types/modules';
 
 interface ModuleStoreState {
   configs: Record<MSEModuleId, ModuleConfig>;
+  toggleModule: (moduleId: MSEModuleId) => void;
   setActiveMethod: (moduleId: MSEModuleId, methodId: string) => void;
   toggleChart: (moduleId: MSEModuleId, chartId: string) => void;
   setActiveComparer: (moduleId: MSEModuleId, comparerId: string) => void;
@@ -11,13 +12,18 @@ interface ModuleStoreState {
 }
 
 const defaultConfigs: Record<MSEModuleId, ModuleConfig> = {
-  motion: { activeMethodId: 'full-pose', enabledChartIds: ['skeleton-overlay', 'motion-trail'], activeComparerId: 'multi-dtw', weight: 1.0 },
-  sound: { activeMethodId: 'full-prosody', enabledChartIds: ['sound-contour', 'waveform'], activeComparerId: 'multi-dtw', weight: 1.0 },
-  eyes: { activeMethodId: 'face-mesh-gaze', enabledChartIds: ['gaze-heatmap', 'gaze-timeline'], activeComparerId: 'multi-feature', weight: 1.0 },
+  motion: { enabled: true, activeMethodId: 'full-pose', enabledChartIds: ['skeleton-overlay', 'motion-trail'], activeComparerId: 'multi-dtw', weight: 1.0 },
+  sound: { enabled: true, activeMethodId: 'full-prosody', enabledChartIds: ['sound-contour', 'waveform'], activeComparerId: 'multi-dtw', weight: 1.0 },
+  eyes: { enabled: true, activeMethodId: 'face-mesh-gaze', enabledChartIds: ['gaze-heatmap', 'gaze-timeline'], activeComparerId: 'multi-feature', weight: 1.0 },
 };
 
 export const useModuleStore = create<ModuleStoreState>((set) => ({
   configs: { ...defaultConfigs },
+
+  toggleModule: (moduleId) =>
+    set((state) => ({
+      configs: { ...state.configs, [moduleId]: { ...state.configs[moduleId], enabled: !state.configs[moduleId].enabled } },
+    })),
 
   setActiveMethod: (moduleId, methodId) =>
     set((state) => ({

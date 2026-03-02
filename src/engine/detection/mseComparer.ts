@@ -16,15 +16,27 @@ export interface MSEScores {
 export function compareMSE(
   reference: MSEPattern,
   learner: MSEPattern,
-  weights = { motion: 1, sound: 1, eyes: 1 }
+  weights = { motion: 1, sound: 1, eyes: 1 },
+  enabledModules = { motion: true, sound: true, eyes: true }
 ): MSEScores {
-  const motionResult = compareMotion(reference, learner);
-  const soundResult = compareSound(reference, learner);
-  const eyesResult = compareEyes(reference, learner);
+  const motionResult = enabledModules.motion
+    ? compareMotion(reference, learner)
+    : { score: 0, breakdown: {}, feedback: ['Motion module disabled'] };
+  const soundResult = enabledModules.sound
+    ? compareSound(reference, learner)
+    : { score: 0, breakdown: {}, feedback: ['Sound module disabled'] };
+  const eyesResult = enabledModules.eyes
+    ? compareEyes(reference, learner)
+    : { score: 0, breakdown: {}, feedback: ['Eyes module disabled'] };
 
-  const totalWeight = weights.motion + weights.sound + weights.eyes;
+  const effectiveWeights = {
+    motion: enabledModules.motion ? weights.motion : 0,
+    sound: enabledModules.sound ? weights.sound : 0,
+    eyes: enabledModules.eyes ? weights.eyes : 0,
+  };
+  const totalWeight = effectiveWeights.motion + effectiveWeights.sound + effectiveWeights.eyes;
   const overall = totalWeight > 0
-    ? Math.round((motionResult.score * weights.motion + soundResult.score * weights.sound + eyesResult.score * weights.eyes) / totalWeight)
+    ? Math.round((motionResult.score * effectiveWeights.motion + soundResult.score * effectiveWeights.sound + eyesResult.score * effectiveWeights.eyes) / totalWeight)
     : 0;
 
   return { overall, motion: motionResult, sound: soundResult, eyes: eyesResult };
