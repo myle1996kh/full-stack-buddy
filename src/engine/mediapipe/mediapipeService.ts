@@ -17,6 +17,10 @@ export type { PoseLandmarkerResult, FaceLandmarkerResult, NormalizedLandmark };
 let poseInstance: PoseLandmarker | null = null;
 let faceInstance: FaceLandmarker | null = null;
 let initPromise: Promise<void> | null = null;
+let lastPoseTimestamp = 0;
+let lastFaceTimestamp = 0;
+let lastPoseWarnAt = 0;
+let lastFaceWarnAt = 0;
 
 const WASM_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm';
 const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
@@ -73,18 +77,32 @@ export async function ensureMediaPipe(): Promise<void> {
 
 export function detectPose(video: HTMLVideoElement, timestampMs: number): PoseLandmarkerResult | null {
   if (!poseInstance) return null;
+  const ts = timestampMs > lastPoseTimestamp ? timestampMs : lastPoseTimestamp + 1;
+  lastPoseTimestamp = ts;
   try {
-    return poseInstance.detectForVideo(video, timestampMs);
-  } catch {
+    return poseInstance.detectForVideo(video, ts);
+  } catch (err) {
+    const now = performance.now();
+    if (now - lastPoseWarnAt > 2000) {
+      console.warn('MediaPipe pose detection error:', err);
+      lastPoseWarnAt = now;
+    }
     return null;
   }
 }
 
 export function detectFace(video: HTMLVideoElement, timestampMs: number): FaceLandmarkerResult | null {
   if (!faceInstance) return null;
+  const ts = timestampMs > lastFaceTimestamp ? timestampMs : lastFaceTimestamp + 1;
+  lastFaceTimestamp = ts;
   try {
-    return faceInstance.detectForVideo(video, timestampMs);
-  } catch {
+    return faceInstance.detectForVideo(video, ts);
+  } catch (err) {
+    const now = performance.now();
+    if (now - lastFaceWarnAt > 2000) {
+      console.warn('MediaPipe face detection error:', err);
+      lastFaceWarnAt = now;
+    }
     return null;
   }
 }

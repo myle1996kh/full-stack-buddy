@@ -79,8 +79,17 @@ export class MSEDetector {
     this.frames = [];
     this.poseLandmarkBuffer = [];
     this.frameCounter = 0;
-    // Try to load MediaPipe (non-blocking)
-    ensureMediaPipe().then(() => { this.mediaPipeReady = true; }).catch(() => {});
+
+    // Try to ensure MediaPipe is ready before session starts (fallback to async retry)
+    const ready = await Promise.race<boolean>([
+      ensureMediaPipe().then(() => true).catch(() => false),
+      new Promise<boolean>(resolve => setTimeout(() => resolve(false), 7000)),
+    ]);
+    this.mediaPipeReady = ready;
+
+    if (!ready) {
+      ensureMediaPipe().then(() => { this.mediaPipeReady = true; }).catch(() => {});
+    }
   }
 
   start(onFrame?: (frame: MSEFrame) => void): void {

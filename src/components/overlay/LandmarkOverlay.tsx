@@ -4,7 +4,6 @@ import {
   detectPose,
   detectFace,
   drawLandmarks,
-  isMediaPipeReady,
   type PoseLandmarkerResult,
   type FaceLandmarkerResult,
 } from '@/engine/mediapipe/mediapipeService';
@@ -28,23 +27,40 @@ export default function LandmarkOverlay({ videoRef, active, width, height, mirro
   const loadingRef = useRef(false);
   const readyRef = useRef(false);
 
-  // Load MediaPipe models on mount
+  // Load MediaPipe models on mount (with retry)
   useEffect(() => {
-    if (loadingRef.current || readyRef.current) return;
-    loadingRef.current = true;
-    ensureMediaPipe().then(() => {
-      readyRef.current = true;
-      loadingRef.current = false;
-    }).catch((err) => {
-      console.warn('MediaPipe failed to load:', err);
-      loadingRef.current = false;
-    });
+    let cancelled = false;
+
+    const tryLoad = () => {
+      if (loadingRef.current || readyRef.current || cancelled) return;
+      loadingRef.current = true;
+      ensureMediaPipe()
+        .then(() => {
+          if (!cancelled) readyRef.current = true;
+        })
+        .catch((err) => {
+          console.warn('MediaPipe failed to load:', err);
+        })
+        .finally(() => {
+          loadingRef.current = false;
+        });
+    };
+
+    tryLoad();
+    const retryId = window.setInterval(() => {
+      if (!readyRef.current) tryLoad();
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(retryId);
+    };
   }, []);
 
   const tick = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || !readyRef.current || video.readyState < 2) {
+    if (!video || !canvas || video.readyState < 2) {
       rafRef.current = requestAnimationFrame(tick);
       return;
     }
@@ -54,20 +70,41 @@ export default function LandmarkOverlay({ videoRef, active, width, height, mirro
     if (canvas.width !== w) canvas.width = w;
     if (canvas.height !== h) canvas.height = h;
 
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      rafRef.current = requestAnimationFrame(tick);
+      return;
+    }
+
+    if (!readyRef.current) {
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = 'hsla(215, 14%, 50%, 0.9)';
+      ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.fillText('MediaPipe loading...', 12, 20);
+      rafRef.current = requestAnimationFrame(tick);
+      return;
+    }
+
     const ts = performance.now();
     const poseResult = detectPose(video, ts);
     const faceResult = detectFace(video, ts);
 
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      if (mirrored) {
-        ctx.save();
-        ctx.translate(w, 0);
-        ctx.scale(-1, 1);
-      }
-      drawLandmarks(ctx, w, h, poseResult, faceResult);
-      if (mirrored) ctx.restore();
+    if (mirrored) {
+      ctx.save();
+      ctx.translate(w, 0);
+      ctx.scale(-1, 1);
     }
+    drawLandmarks(ctx, w, h, poseResult, faceResult);
+
+    const hasPose = Boolean(poseResult?.landmarks?.length);
+    const hasFace = Boolean(faceResult?.faceLandmarks?.length);
+    if (!hasPose && !hasFace) {
+      ctx.fillStyle = 'hsla(215, 14%, 50%, 0.9)';
+      ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.fillText('No pose/face detected yet', 12, 20);
+    }
+
+    if (mirrored) ctx.restore();
 
     onResults?.(poseResult, faceResult);
     rafRef.current = requestAnimationFrame(tick);

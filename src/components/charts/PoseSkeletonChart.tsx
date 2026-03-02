@@ -60,6 +60,7 @@ function SkeletonCell({ snapshot, index, selected, onClick }: {
   const lm = snapshot.landmarks;
   const svgSize = 120;
   const pad = 0.12;
+  const hasUsableLandmarks = Array.isArray(lm) && lm.length >= 29;
 
   const toSvg = (x: number, y: number) => ({
     sx: pad * svgSize + x * svgSize * (1 - 2 * pad),
@@ -83,61 +84,78 @@ function SkeletonCell({ snapshot, index, selected, onClick }: {
       </span>
 
       <svg viewBox={`0 0 ${svgSize} ${svgSize}`} className="w-full h-full">
-        {/* Fill body silhouette */}
-        {(() => {
-          // Create a rough body silhouette polygon
-          const bodyPoints = [11, 12, 24, 23]; // torso
-          const coords = bodyPoints
-            .filter(i => lm[i])
-            .map(i => toSvg(lm[i].x, lm[i].y));
-          if (coords.length === 4) {
-            return (
-              <polygon
-                points={coords.map(c => `${c.sx},${c.sy}`).join(' ')}
-                fill="hsl(var(--muted-foreground))"
-                opacity={0.15}
-              />
-            );
-          }
-          return null;
-        })()}
+        {!hasUsableLandmarks && (
+          <text
+            x={svgSize / 2}
+            y={svgSize / 2}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill="hsl(var(--muted-foreground))"
+            fontSize="10"
+          >
+            no pose data
+          </text>
+        )}
 
-        {/* Connections */}
-        {CONNECTIONS.map((c, i) => {
-          if (!lm[c.from] || !lm[c.to]) return null;
-          const a = toSvg(lm[c.from].x, lm[c.from].y);
-          const b = toSvg(lm[c.to].x, lm[c.to].y);
-          return (
-            <line
-              key={i}
-              x1={a.sx} y1={a.sy} x2={b.sx} y2={b.sy}
-              stroke={GROUP_COLORS[c.group]}
-              strokeWidth={3}
-              strokeLinecap="round"
-              opacity={0.9}
-            />
-          );
-        })}
+        {hasUsableLandmarks && (
+          <>
+            {/* Fill body silhouette */}
+            {(() => {
+              // Create a rough body silhouette polygon
+              const bodyPoints = [11, 12, 24, 23]; // torso
+              const coords = bodyPoints
+                .filter(i => lm[i])
+                .map(i => toSvg(lm[i].x, lm[i].y));
+              if (coords.length === 4) {
+                return (
+                  <polygon
+                    points={coords.map(c => `${c.sx},${c.sy}`).join(' ')}
+                    fill="hsl(var(--muted-foreground))"
+                    opacity={0.15}
+                  />
+                );
+              }
+              return null;
+            })()}
 
-        {/* Joint dots */}
-        {JOINT_POINTS.map(idx => {
-          if (!lm[idx]) return null;
-          const { sx, sy } = toSvg(lm[idx].x, lm[idx].y);
-          return (
-            <circle
-              key={idx}
-              cx={sx} cy={sy} r={3}
-              fill="hsl(var(--foreground))"
-              opacity={0.7}
-            />
-          );
-        })}
+            {/* Connections */}
+            {CONNECTIONS.map((c, i) => {
+              if (!lm[c.from] || !lm[c.to]) return null;
+              const a = toSvg(lm[c.from].x, lm[c.from].y);
+              const b = toSvg(lm[c.to].x, lm[c.to].y);
+              return (
+                <line
+                  key={i}
+                  x1={a.sx} y1={a.sy} x2={b.sx} y2={b.sy}
+                  stroke={GROUP_COLORS[c.group]}
+                  strokeWidth={3}
+                  strokeLinecap="round"
+                  opacity={0.9}
+                />
+              );
+            })}
 
-        {/* Head circle */}
-        {lm[0] && (() => {
-          const { sx, sy } = toSvg(lm[0].x, lm[0].y);
-          return <circle cx={sx} cy={sy} r={8} fill="hsl(var(--muted-foreground))" opacity={0.3} stroke="hsl(var(--muted-foreground))" strokeWidth={1.5} />;
-        })()}
+            {/* Joint dots */}
+            {JOINT_POINTS.map(idx => {
+              if (!lm[idx]) return null;
+              const { sx, sy } = toSvg(lm[idx].x, lm[idx].y);
+              return (
+                <circle
+                  key={idx}
+                  cx={sx} cy={sy} r={3}
+                  fill="hsl(var(--foreground))"
+                  opacity={0.7}
+                />
+              );
+            })}
+
+            {/* Head circle */}
+            {lm[0] && (() => {
+              const { sx, sy } = toSvg(lm[0].x, lm[0].y);
+              return <circle cx={sx} cy={sy} r={8} fill="hsl(var(--muted-foreground))" opacity={0.3} stroke="hsl(var(--muted-foreground))" strokeWidth={1.5} />;
+            })()}
+          </>
+        )}
       </svg>
     </button>
   );
