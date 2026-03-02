@@ -5,10 +5,13 @@ import { Circle, Square, Activity, Volume2, Eye, Zap, Layers } from 'lucide-reac
 import { useCamera } from '@/hooks/useCamera';
 import { useNavigate } from 'react-router-dom';
 import LandmarkOverlay from '@/components/overlay/LandmarkOverlay';
+import { useAuthStore } from '@/stores/authStore';
+import { supabase } from '@/integrations/supabase/client';
 import type { MSEFrame } from '@/engine/detection/mseDetector';
 
 export default function RecordPage() {
   const navigate = useNavigate();
+  const { user } = useAuthStore();
   const [liveFrame, setLiveFrame] = useState<MSEFrame | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [showOverlay, setShowOverlay] = useState(true);
@@ -31,11 +34,29 @@ export default function RecordPage() {
 
   const handleStopRecording = async () => {
     camera.stopDetection();
-    await camera.stopRecording();
+    const videoBlob = await camera.stopRecording();
     const pattern = camera.extractPattern();
-    if (pattern) {
-      // Store pattern in sessionStorage for ReviewPage
+
+    if (pattern && user) {
+      // Upload reference video to storage
+      let videoUrl: string | null = null;
+      try {
+        const fileName = `${user.id}/${Date.now()}.webm`;
+        const { error } = await supabase.storage
+          .from('lesson-videos')
+          .upload(fileName, videoBlob, { contentType: 'video/webm' });
+        if (!error) {
+          const { data: urlData } = supabase.storage
+            .from('lesson-videos')
+            .getPublicUrl(fileName);
+          videoUrl = urlData.publicUrl;
+        }
+      } catch (err) {
+        console.warn('Video upload failed:', err);
+      }
+
       sessionStorage.setItem('mse-recorded-pattern', JSON.stringify(pattern));
+      if (videoUrl) sessionStorage.setItem('mse-recorded-video-url', videoUrl);
       navigate('/captain/record/review');
     }
   };
@@ -50,6 +71,7 @@ export default function RecordPage() {
   const volumeLevel = liveFrame ? Math.round(liveFrame.sound.volume) : 0;
   const gazeZone = liveFrame?.gaze.zone || '—';
   const faceDetected = liveFrame?.gaze.faceDetected ?? false;
+  const poseName = liveFrame?.motion.pose || '—';
 
   return (
     <div className="space-y-4 animate-slide-up">
@@ -66,7 +88,6 @@ export default function RecordPage() {
               playsInline
               style={{ transform: 'scaleX(-1)' }}
             />
-            {/* MediaPipe landmark overlay */}
             {showOverlay && (
               <LandmarkOverlay
                 videoRef={camera.videoRef as React.RefObject<HTMLVideoElement>}
@@ -86,7 +107,6 @@ export default function RecordPage() {
             )}
           </div>
 
-          {/* Overlay toggle */}
           <button
             onClick={() => setShowOverlay(v => !v)}
             className={`absolute top-3 left-3 p-1.5 rounded-full backdrop-blur-sm transition-colors ${
@@ -142,6 +162,11 @@ export default function RecordPage() {
               <span className={`ml-auto font-mono ${faceDetected ? 'text-mse-motion' : 'text-muted-foreground'}`}>
                 {faceDetected ? 'Detected ✓' : 'Not found'}
               </span>
+            </div>
+            <div className="flex items-center gap-2 text-xs col-span-2 pt-1 border-t border-border/30">
+              <Activity className="w-3.5 h-3.5 text-mse-consciousness" />
+              <span className="text-muted-foreground">Pose</span>
+              <span className="ml-auto font-mono capitalize text-mse-consciousness">{poseName}</span>
             </div>
           </div>
         </CardContent>

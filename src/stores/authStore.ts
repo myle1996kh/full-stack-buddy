@@ -12,6 +12,7 @@ interface AuthStoreState {
   setLoading: (loading: boolean) => void;
   fetchRole: () => Promise<void>;
   selectRole: (role: UserRole) => Promise<void>;
+  switchRole: (role: UserRole) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -45,6 +46,18 @@ export const useAuthStore = create<AuthStoreState>((set, get) => ({
       .from('user_roles')
       .insert({ user_id: user.id, role });
     
+    set({ role });
+  },
+
+  switchRole: async (role: UserRole) => {
+    const { user } = get();
+    if (!user) return;
+
+    await supabase
+      .from('user_roles')
+      .update({ role })
+      .eq('user_id', user.id);
+
     set({ role });
   },
 
