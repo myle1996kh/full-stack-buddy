@@ -51,6 +51,7 @@ export default function PlaygroundPage() {
   const mediaPipeReady = useRef(false);
   const frameCounter = useRef(0);
   const refVideoRef = useRef<HTMLVideoElement>(null);
+  const [videoPlayable, setVideoPlayable] = useState(true);
 
   useEffect(() => {
     ensureMediaPipe().then(() => { mediaPipeReady.current = true; }).catch(() => {});
@@ -90,6 +91,7 @@ export default function PlaygroundPage() {
       supabase.from('lessons').select('*').eq('id', id).single().then(({ data }) => {
         if (data) {
           setLesson(data as unknown as Lesson);
+          setVideoPlayable(true);
           setPlayState('ready');
         }
       });
@@ -102,6 +104,7 @@ export default function PlaygroundPage() {
 
   const handleSelectLesson = (l: Lesson) => {
     setLesson(l);
+    setVideoPlayable(true);
     setPlayState('ready');
   };
 
@@ -111,7 +114,10 @@ export default function PlaygroundPage() {
     // Play reference video in sync
     if (refVideoRef.current) {
       refVideoRef.current.currentTime = 0;
-      refVideoRef.current.play().catch(() => {});
+      refVideoRef.current.muted = true;
+      refVideoRef.current.play().catch(() => {
+        setVideoPlayable(false);
+      });
     }
     setPlayState('practicing');
   };
@@ -259,14 +265,18 @@ export default function PlaygroundPage() {
         <Card className="glass overflow-hidden">
           <CardContent className="p-0">
             <div className="aspect-video bg-muted/30 relative">
-              {lesson?.video_url ? (
+              {lesson?.video_url && videoPlayable ? (
                 <video
                   ref={refVideoRef}
                   src={lesson.video_url}
                   className="w-full h-full object-cover"
                   playsInline
+                  preload="metadata"
+                  crossOrigin="anonymous"
                   loop
-                  muted={playState !== 'practicing'}
+                  muted
+                  onLoadedData={() => setVideoPlayable(true)}
+                  onError={() => setVideoPlayable(false)}
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center p-3">
@@ -288,7 +298,7 @@ export default function PlaygroundPage() {
                             <p className="font-mono text-mse-eyes">{lesson.reference_pattern?.eyes?.primaryZone || '—'}</p>
                           </div>
                         </div>
-                        <p className="text-[9px] text-muted-foreground">Lesson này chưa có video, đang dùng pattern làm mẫu.</p>
+                        <p className="text-[9px] text-muted-foreground">{lesson?.video_url ? 'Video không phát được trên trình duyệt này, đang dùng pattern làm mẫu.' : 'Lesson này chưa có video, đang dùng pattern làm mẫu.'}</p>
                       </>
                     )}
                   </div>
@@ -349,7 +359,7 @@ export default function PlaygroundPage() {
       </div>
 
       {/* Captain pattern preview (fallback when lesson has no video) */}
-      {!lesson?.video_url && lesson?.reference_pattern?.motion?.poseSnapshots?.length ? (
+      {(!lesson?.video_url || !videoPlayable) && lesson?.reference_pattern?.motion?.poseSnapshots?.length ? (
         <Card className="glass">
           <CardContent className="p-4 space-y-2">
             <h3 className="text-sm font-medium">Captain Pose Pattern</h3>
