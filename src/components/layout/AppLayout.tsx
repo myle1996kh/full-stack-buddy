@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import CaptainNav from './CaptainNav';
 import CrewNav from './CrewNav';
+import AdminNav from './AdminNav';
 import { Zap } from 'lucide-react';
 
 export default function AppLayout() {
@@ -18,7 +19,7 @@ export default function AppLayout() {
             <span className="font-bold text-sm">MSE-Conscious</span>
           </div>
           <span className="text-xs text-muted-foreground capitalize px-2 py-1 rounded bg-muted">
-            {role === 'captain' ? '🧑‍✈️ Captain' : '🚣 Crew'}
+            {role === 'admin' ? '🛡️ Admin' : role === 'captain' ? '🧑‍✈️ Captain' : '🚣 Crew'}
           </span>
         </div>
       </header>
@@ -27,7 +28,7 @@ export default function AppLayout() {
         <Outlet />
       </main>
 
-      {role === 'captain' ? <CaptainNav /> : <CrewNav />}
+      {role === 'admin' ? <AdminNav /> : role === 'captain' ? <CaptainNav /> : <CrewNav />}
     </div>
   );
 }

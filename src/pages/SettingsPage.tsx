@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/authStore';
-import { LogOut, User, Sliders, Anchor, Users } from 'lucide-react';
+import { LogOut, User, Sliders, Anchor, Users, Shield } from 'lucide-react';
 import ModuleConfig from '@/components/config/ModuleConfig';
 import type { UserRole } from '@/types/user';
 
@@ -22,7 +22,9 @@ export default function SettingsPage() {
   const handleSwitchRole = async () => {
     if (!role) return;
     setSwitching(true);
-    const newRole: UserRole = role === 'captain' ? 'crew' : 'captain';
+    const allRoles: UserRole[] = ['captain', 'crew', 'admin'];
+    const idx = allRoles.indexOf(role);
+    const newRole = allRoles[(idx + 1) % allRoles.length];
     await switchRole(newRole);
     setSwitching(false);
   };
@@ -79,7 +81,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Role</span>
-                  <span className="capitalize">{role === 'captain' ? '🧑‍✈️ Captain' : '🚣 Crew'}</span>
+                  <span className="capitalize">{role === 'admin' ? '🛡️ Admin' : role === 'captain' ? '🧑‍✈️ Captain' : '🚣 Crew'}</span>
                 </div>
               </CardContent>
             </Card>
