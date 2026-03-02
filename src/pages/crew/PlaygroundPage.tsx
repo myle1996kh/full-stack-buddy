@@ -215,7 +215,7 @@ export default function PlaygroundPage() {
           { key: 'motion' as const, icon: Activity, label: 'Motion', color: 'bg-mse-motion', textColor: 'text-mse-motion' },
           { key: 'sound' as const, icon: Volume2, label: 'Sound', color: 'bg-mse-sound', textColor: 'text-mse-sound' },
           { key: 'eyes' as const, icon: Eye, label: 'Eyes', color: 'bg-mse-eyes', textColor: 'text-mse-eyes' },
-        ].map(item => (
+        ].filter(item => useModuleStore.getState().configs[item.key].enabled).map(item => (
           <Card key={item.key} className="glass">
             <CardContent className="p-4 space-y-3">
               <div className="flex items-center justify-between">
