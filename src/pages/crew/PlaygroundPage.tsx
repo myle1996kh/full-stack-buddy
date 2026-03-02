@@ -271,10 +271,10 @@ export default function PlaygroundPage() {
                   src={lesson.video_url}
                   className="w-full h-full object-cover"
                   playsInline
-                  preload="metadata"
-                  crossOrigin="anonymous"
+                  preload="auto"
                   loop
                   muted
+                  controls
                   onLoadedData={() => setVideoPlayable(true)}
                   onError={() => setVideoPlayable(false)}
                 />
@@ -305,11 +305,6 @@ export default function PlaygroundPage() {
                 </div>
               )}
               <p className="absolute top-1 left-1 text-[10px] text-muted-foreground bg-background/60 px-1 rounded">🧑‍✈️ Captain</p>
-              {playState !== 'practicing' && lesson?.video_url && (
-                <div className="absolute inset-0 flex items-center justify-center bg-background/30">
-                  <Play className="w-8 h-8 text-primary/60" />
-                </div>
-              )}
             </div>
           </CardContent>
         </Card>
