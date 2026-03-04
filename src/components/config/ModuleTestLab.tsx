@@ -203,6 +203,13 @@ export default function ModuleTestLab() {
       const comparer = currentModule.comparers[0];
       const method = currentModule.methods.find(m => m.id === selectedMethod) || currentModule.methods[0];
 
+      // Inject dynamic metric weights for sound module
+      if (selectedModule === 'sound') {
+        setSoundMetricWeights(soundMetrics);
+      } else {
+        setSoundMetricWeights(undefined);
+      }
+
       // Step 1: Extract reference pattern
       let referencePattern: any;
 
