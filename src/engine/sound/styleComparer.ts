@@ -68,12 +68,20 @@ export function compareSoundStyle(
   const usrQuality = evaluateQuality(usr);
   const qualityFactor = Math.min(refQuality.factor, usrQuality.factor);
 
-  // Score = weighted average of sub-scores
+  // Score = weighted average of enabled sub-scores
   let base = 0;
   for (const key of enabledKeys) {
     base += rawScores[key as keyof typeof rawScores] * normWeights[key];
   }
-  const score = Math.round(Math.max(0, Math.min(100, base * 100)));
+
+  // Discrimination calibration: low core prosody dimensions should cap the final score.
+  const coreKeys = enabledKeys.filter((k) => k === 'intonation' || k === 'rhythmPause' || k === 'energy');
+  const coreMin = coreKeys.length > 0
+    ? Math.min(...coreKeys.map((k) => rawScores[k as keyof typeof rawScores]))
+    : 1;
+  const discriminationFactor = 0.55 + 0.45 * coreMin;
+
+  const score = Math.round(Math.max(0, Math.min(100, base * discriminationFactor * 100)));
 
   const breakdown: Record<string, number> = {};
   for (const key of enabledKeys) {
