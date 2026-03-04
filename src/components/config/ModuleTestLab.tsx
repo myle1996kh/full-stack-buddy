@@ -394,7 +394,69 @@ export default function ModuleTestLab() {
         </CardContent>
       </Card>
 
-      {/* Reference File */}
+      {/* Score Metrics Config (Sound module only) */}
+      <AnimatePresence>
+        {selectedModule === 'sound' && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+          >
+            <Card className="glass border-mse-sound/30">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <SlidersHorizontal className="w-4 h-4" />
+                  Score Metrics
+                  <span className="text-[10px] text-muted-foreground font-normal">
+                    (toggle & adjust weights)
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {(Object.keys(soundMetrics) as SoundMetricId[]).map((metricId) => {
+                  const metric = soundMetrics[metricId];
+                  const totalEnabled = Object.values(soundMetrics).filter(m => m.enabled).reduce((s, m) => s + m.weight, 0);
+                  const normalizedPct = metric.enabled && totalEnabled > 0
+                    ? Math.round((metric.weight / totalEnabled) * 100)
+                    : 0;
+
+                  return (
+                    <div key={metricId} className={`flex items-center gap-3 transition-opacity ${metric.enabled ? '' : 'opacity-40'}`}>
+                      <Switch
+                        checked={metric.enabled}
+                        onCheckedChange={() => toggleSoundMetric(metricId)}
+                        className="scale-75"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium">{metricLabels[metricId]}</span>
+                          <span className="text-[10px] font-mono text-muted-foreground">
+                            {metric.enabled ? `${normalizedPct}%` : 'OFF'}
+                          </span>
+                        </div>
+                        {metric.enabled && (
+                          <Slider
+                            value={[metric.weight * 100]}
+                            onValueChange={([v]) => setSoundMetricWeight(metricId, v / 100)}
+                            min={5}
+                            max={100}
+                            step={5}
+                            className="h-1"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                <p className="text-[10px] text-muted-foreground">
+                  Weights are auto-normalized. Disabled metrics won't appear in results.
+                </p>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <Card className="glass">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">2. Reference (Captain Sample)</CardTitle>
