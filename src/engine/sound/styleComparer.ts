@@ -290,6 +290,23 @@ function comparePauses(ref: SoundPatternV2, usr: SoundPatternV2): number {
 
 // ── Helpers ──
 
+function stabilizeContour(arr: number[]): number[] {
+  return arr.map((v) => {
+    if (!Number.isFinite(v)) return 0;
+    return Math.round(v * 1000) / 1000;
+  });
+}
+
+function meanAbsoluteError(a: number[], b: number[]): number {
+  const n = Math.min(a.length, b.length);
+  if (n === 0) return Infinity;
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    sum += Math.abs(a[i] - b[i]);
+  }
+  return sum / n;
+}
+
 /**
  * Stricter ratio similarity using quadratic falloff.
  * ratio=1 → 1.0, ratio=0.5 → 0.25, ratio=0.33 → 0.11
