@@ -6,13 +6,17 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
+import { Slider } from '@/components/ui/slider';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Activity, Volume2, Eye, Upload, Database, Play, Trash2, FileVideo, FileAudio, BarChart3, X, Loader2, Mic, Video } from 'lucide-react';
+import { Activity, Volume2, Eye, Upload, Database, Play, Trash2, FileVideo, FileAudio, BarChart3, X, Loader2, Mic, Video, SlidersHorizontal } from 'lucide-react';
 import FileRecorder from '@/components/config/FileRecorder';
 import { getAllModules } from '@/engine/modules/registry';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
+import { useModuleStore, type SoundMetricId } from '@/stores/moduleStore';
+import { setSoundMetricWeights } from '@/engine/modules/soundModule';
 import { toast } from 'sonner';
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, Radar, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import {
@@ -23,6 +27,13 @@ import {
   processVideoForSound,
 } from '@/engine/processing/fileProcessor';
 import type { MSEModuleId, ComparisonResult, SoundFrame, EyesFrame, MotionFrame } from '@/types/modules';
+
+const metricLabels: Record<SoundMetricId, string> = {
+  intonation: 'Intonation',
+  rhythmPause: 'Rhythm & Pause',
+  energy: 'Energy',
+  timbre: 'Timbre',
+};
 
 const moduleIcons: Record<MSEModuleId, React.ReactNode> = {
   motion: <Activity className="w-4 h-4" />,
