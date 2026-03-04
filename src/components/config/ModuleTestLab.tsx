@@ -794,6 +794,11 @@ export default function ModuleTestLab() {
                 </CardContent>
               </Card>
             )}
+
+            {/* Prosody Debug Panel (Sound module only) */}
+            {selectedModule === 'sound' && results.some(r => r.debug) && (
+              <ProsodyDebugPanel results={results} />
+            )}
           </motion.div>
         )}
       </AnimatePresence>
