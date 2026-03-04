@@ -1,4 +1,58 @@
+/**
+ * Sound MSE Module — wired to V2 pipeline.
+ * extract() produces SoundPatternV2-compatible output,
+ * compare() uses deterministic DTW-based style comparison.
+ */
+
 import type { MSEModule, SoundFrame, SoundPattern } from '@/types/modules';
+import {
+  processAudioFileV2,
+  extractSoundPatternV2,
+  compareSoundStyleCrossLanguage,
+} from '@/engine/sound/index';
+import type { SoundPatternV2, SoundCompareResultV2 } from '@/engine/sound/types';
+
+/**
+ * Bridge: convert old SoundFrame[] to V2 frames for pattern extraction.
+ * This allows the module to work with both legacy and new frame formats.
+ */
+function bridgeToV2Pattern(frames: SoundFrame[]): SoundPattern & { _v2?: SoundPatternV2 } {
+  // Convert old SoundFrame to V2-compatible frame data
+  const v2Frames = frames.map((f, i) => ({
+    t: f.timestamp / 1000, // ms -> seconds
+    pitchHz: f.pitch > 0 ? f.pitch : null,
+    pitchConf: f.pitch > 60 && f.pitch < 500 ? 0.7 : 0.1,
+    energyDb: f.volume > 0 ? 20 * Math.log10(f.volume / 100 + 1e-8) : -60,
+    centroid: 0,
+    zcr: 0,
+    rolloff: 0,
+    flux: 0,
+    voiced: f.pitch > 60 && f.pitch < 500 && f.volume > 5,
+  }));
+
+  const duration = frames.length > 0
+    ? (frames[frames.length - 1].timestamp - frames[0].timestamp) / 1000
+    : 0;
+
+  const v2Pattern = extractSoundPatternV2(v2Frames, duration);
+
+  // Also build legacy fields for backward compatibility
+  const pitchContour = frames.map(f => f.pitch);
+  const volumeContour = frames.map(f => f.volume);
+  const avgPitch = pitchContour.filter(p => p > 0).reduce((a, b) => a + b, 0) /
+    (pitchContour.filter(p => p > 0).length || 1);
+  const avgVolume = volumeContour.reduce((a, b) => a + b, 0) / (volumeContour.length || 1);
+
+  return {
+    pitchContour,
+    volumeContour,
+    rhythmPattern: detectRhythm(volumeContour),
+    avgPitch,
+    avgVolume,
+    syllableRate: estimateSyllableRate(volumeContour),
+    _v2: v2Pattern,
+  };
+}
 
 export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
   id: 'sound',
@@ -15,18 +69,7 @@ export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
       enabled: true,
       requires: ['microphone'],
       extract: (frames: SoundFrame[]): SoundPattern => {
-        const pitchContour = frames.map(f => f.pitch);
-        const volumeContour = frames.map(f => f.volume);
-        const avgPitch = pitchContour.reduce((a, b) => a + b, 0) / (pitchContour.length || 1);
-        const avgVolume = volumeContour.reduce((a, b) => a + b, 0) / (volumeContour.length || 1);
-        return {
-          pitchContour,
-          volumeContour,
-          rhythmPattern: detectRhythm(volumeContour),
-          avgPitch,
-          avgVolume,
-          syllableRate: estimateSyllableRate(volumeContour),
-        };
+        return bridgeToV2Pattern(frames);
       },
       processFrame: (frame: SoundFrame): number => {
         return Math.min(1, frame.volume / 100);
@@ -40,15 +83,7 @@ export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
       enabled: false,
       requires: ['microphone'],
       extract: (frames: SoundFrame[]): SoundPattern => {
-        const pitchContour = frames.map(f => f.pitch);
-        return {
-          pitchContour,
-          volumeContour: [],
-          rhythmPattern: [],
-          avgPitch: pitchContour.reduce((a, b) => a + b, 0) / (pitchContour.length || 1),
-          avgVolume: 0,
-          syllableRate: 0,
-        };
+        return bridgeToV2Pattern(frames);
       },
     },
   ],
@@ -62,67 +97,86 @@ export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
 
   comparers: [
     {
-      id: 'multi-dtw',
-      name: 'Multi-feature DTW',
-      description: 'DTW on pitch, volume, and rhythm features',
+      id: 'style-dtw',
+      name: 'Cross-Language Style DTW',
+      description: 'DTW-based prosodic style comparison (intonation, rhythm, energy, timbre)',
       isDefault: true,
       enabled: true,
       compare: (ref: SoundPattern, learner: SoundPattern) => {
-        const pitchScore = compareContours(ref.pitchContour, learner.pitchContour);
-        const volumeScore = compareContours(ref.volumeContour, learner.volumeContour);
-        const rhythmScore = compareContours(ref.rhythmPattern, learner.rhythmPattern);
+        // Use V2 patterns if available, otherwise build from legacy data
+        const refV2 = (ref as any)._v2 as SoundPatternV2 | undefined;
+        const learnerV2 = (learner as any)._v2 as SoundPatternV2 | undefined;
 
-        // Clarity: compare avg pitch similarity
-        const clarityScore = ref.avgPitch > 0
-          ? Math.max(0, 100 - Math.abs(ref.avgPitch - learner.avgPitch) / ref.avgPitch * 100)
-          : learner.avgPitch === 0 ? 100 : 50;
+        if (refV2 && learnerV2) {
+          const result = compareSoundStyleCrossLanguage(refV2, learnerV2);
+          return {
+            score: result.score,
+            breakdown: result.breakdown,
+            feedback: result.feedback,
+          };
+        }
 
-        // Tempo: compare syllable rate
-        const tempoScore = ref.syllableRate > 0
-          ? Math.max(0, 100 - Math.abs(ref.syllableRate - learner.syllableRate) / ref.syllableRate * 100)
-          : learner.syllableRate === 0 ? 100 : 50;
-
-        const overall = (pitchScore + volumeScore + rhythmScore + clarityScore + tempoScore) / 5;
-
-        const feedback: string[] = [];
-        if (pitchScore < 60) feedback.push('Pitch contour differs — try matching the intonation pattern');
-        if (volumeScore < 60) feedback.push('Volume dynamics need adjustment');
-        if (rhythmScore < 60) feedback.push('Rhythm pattern is off — focus on timing');
-        if (tempoScore < 60) feedback.push('Speaking rate differs from reference');
-        if (overall >= 80) feedback.push('Great voice control!');
-
+        // Fallback: build V2 patterns from legacy frames on the fly
+        // This shouldn't normally happen since extract() now attaches _v2
+        const fallbackRef = buildFallbackV2(ref);
+        const fallbackLearner = buildFallbackV2(learner);
+        const result = compareSoundStyleCrossLanguage(fallbackRef, fallbackLearner);
         return {
-          score: Math.round(overall),
-          breakdown: {
-            pitch: Math.round(pitchScore),
-            volume: Math.round(volumeScore),
-            rhythm: Math.round(rhythmScore),
-            clarity: Math.round(clarityScore),
-            tempo: Math.round(tempoScore),
-          },
-          feedback,
+          score: result.score,
+          breakdown: result.breakdown,
+          feedback: result.feedback,
         };
       },
     },
   ],
 };
 
-// --- Real comparison helpers ---
+// ── Fallback V2 builder from legacy SoundPattern ──
 
-function compareContours(a: number[], b: number[]): number {
-  if (a.length === 0 && b.length === 0) return 100;
-  if (a.length === 0 || b.length === 0) return 30;
+function buildFallbackV2(pattern: SoundPattern): SoundPatternV2 {
+  const { resample } = require('@/engine/sound/patternExtractor');
+  const CONTOUR_LENGTH = 180;
 
-  // Resample both to same length, then cosine similarity
-  const len = 64;
-  const ra = resample(a, len);
-  const rb = resample(b, len);
-  return cosineSimilarity(ra, rb) * 100;
+  // Convert pitch to semitones
+  const pitches = pattern.pitchContour.filter(p => p > 0);
+  const medianPitch = pitches.length > 0
+    ? pitches.sort((a, b) => a - b)[Math.floor(pitches.length / 2)]
+    : 200;
+
+  const pitchSemitones = pattern.pitchContour.map(p =>
+    p > 60 && p < 500 ? 12 * Math.log2(p / medianPitch) : 0
+  );
+
+  const pitchContourNorm = resampleArr(pitchSemitones, CONTOUR_LENGTH);
+  const pitchSlope = pitchContourNorm.map((v, i) => i > 0 ? v - pitchContourNorm[i - 1] : 0);
+
+  // Energy from volume
+  const energyRaw = pattern.volumeContour.map(v => v > 0 ? 20 * Math.log10(v / 100 + 1e-8) : -60);
+  const mean = energyRaw.reduce((a, b) => a + b, 0) / (energyRaw.length || 1);
+  const std = Math.sqrt(energyRaw.reduce((s, v) => s + (v - mean) ** 2, 0) / (energyRaw.length || 1));
+  const zNorm = std > 0.001 ? energyRaw.map(v => (v - mean) / std) : energyRaw.map(() => 0);
+  const energyContourNorm = resampleArr(zNorm, CONTOUR_LENGTH);
+
+  const duration = pattern.pitchContour.length * 0.05; // ~50ms per frame
+
+  return {
+    duration,
+    pitchContourNorm,
+    pitchSlope,
+    energyContourNorm,
+    onsetTimes: [],
+    pausePattern: [],
+    speechRate: pattern.syllableRate,
+    avgIOI: 0,
+    regularity: 0,
+    voicedRatio: pitches.length / (pattern.pitchContour.length || 1),
+    quality: { snrLike: 20, clippingRatio: 0, confidence: 0.7 },
+  };
 }
 
-function resample(arr: number[], targetLen: number): number[] {
+function resampleArr(arr: number[], targetLen: number): number[] {
   if (arr.length === 0) return new Array(targetLen).fill(0);
-  if (arr.length === targetLen) return arr;
+  if (arr.length === 1) return new Array(targetLen).fill(arr[0]);
   const result: number[] = [];
   for (let i = 0; i < targetLen; i++) {
     const pos = (i / (targetLen - 1)) * (arr.length - 1);
@@ -132,19 +186,6 @@ function resample(arr: number[], targetLen: number): number[] {
     result.push(arr[lo] * (1 - frac) + arr[hi] * frac);
   }
   return result;
-}
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  let dot = 0, magA = 0, magB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    magA += a[i] * a[i];
-    magB += b[i] * b[i];
-  }
-  if (magA === 0 || magB === 0) return 0;
-  const sim = dot / (Math.sqrt(magA) * Math.sqrt(magB));
-  // Cosine sim ranges -1 to 1, normalize to 0-1
-  return Math.max(0, Math.min(1, (sim + 1) / 2));
 }
 
 function detectRhythm(volumes: number[]): number[] {
