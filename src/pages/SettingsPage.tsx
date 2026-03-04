@@ -5,11 +5,14 @@ import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/authStore';
 import { LogOut, User, Sliders, Anchor, Users, Shield } from 'lucide-react';
 import ModuleConfig from '@/components/config/ModuleConfig';
+import ModuleTestLab from '@/components/config/ModuleTestLab';
 import type { UserRole } from '@/types/user';
+import { FlaskConical } from 'lucide-react';
 
 const tabs = [
   { id: 'profile', label: 'Profile', icon: User },
   { id: 'modules', label: 'MSE Modules', icon: Sliders },
+  { id: 'test-lab', label: 'Test Lab', icon: FlaskConical },
 ] as const;
 
 type TabId = (typeof tabs)[number]['id'];
@@ -126,6 +129,18 @@ export default function SettingsPage() {
             transition={{ duration: 0.25 }}
           >
             <ModuleConfig />
+          </motion.div>
+        )}
+
+        {activeTab === 'test-lab' && (
+          <motion.div
+            key="test-lab"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.25 }}
+          >
+            <ModuleTestLab />
           </motion.div>
         )}
       </AnimatePresence>

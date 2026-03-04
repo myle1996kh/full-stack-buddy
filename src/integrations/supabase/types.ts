@@ -74,6 +74,94 @@ export type Database = {
         }
         Relationships: []
       }
+      module_test_results: {
+        Row: {
+          breakdown: Json | null
+          compare_file_url: string
+          compare_pattern: Json | null
+          created_at: string
+          feedback: string[] | null
+          file_name: string
+          id: string
+          reference_pattern: Json | null
+          score: number
+          test_id: string
+        }
+        Insert: {
+          breakdown?: Json | null
+          compare_file_url: string
+          compare_pattern?: Json | null
+          created_at?: string
+          feedback?: string[] | null
+          file_name?: string
+          id?: string
+          reference_pattern?: Json | null
+          score?: number
+          test_id: string
+        }
+        Update: {
+          breakdown?: Json | null
+          compare_file_url?: string
+          compare_pattern?: Json | null
+          created_at?: string
+          feedback?: string[] | null
+          file_name?: string
+          id?: string
+          reference_pattern?: Json | null
+          score?: number
+          test_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "module_test_results_test_id_fkey"
+            columns: ["test_id"]
+            isOneToOne: false
+            referencedRelation: "module_tests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      module_tests: {
+        Row: {
+          created_at: string
+          id: string
+          lesson_id: string | null
+          method_id: string
+          module_id: string
+          reference_file_url: string
+          reference_source: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          lesson_id?: string | null
+          method_id: string
+          module_id: string
+          reference_file_url: string
+          reference_source?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          lesson_id?: string | null
+          method_id?: string
+          module_id?: string
+          reference_file_url?: string
+          reference_source?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "module_tests_lesson_id_fkey"
+            columns: ["lesson_id"]
+            isOneToOne: false
+            referencedRelation: "lessons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
