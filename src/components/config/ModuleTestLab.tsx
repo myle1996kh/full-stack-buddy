@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Activity, Volume2, Eye, Upload, Database, Play, Trash2, FileVideo, FileAudio, BarChart3, X, Loader2, Mic, Video, SlidersHorizontal } from 'lucide-react';
 import FileRecorder from '@/components/config/FileRecorder';
+import ProsodyDebugPanel from '@/components/config/ProsodyDebugPanel';
 import { getAllModules } from '@/engine/modules/registry';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
@@ -63,6 +64,7 @@ interface TestResult {
   score: number;
   breakdown: Record<string, number>;
   feedback: string[];
+  debug?: Record<string, number>;
 }
 
 interface LessonOption {
@@ -272,6 +274,7 @@ export default function ModuleTestLab() {
             Object.entries(result.breakdown).map(([k, v]) => [k, Math.round(v)])
           ),
           feedback: result.feedback,
+          debug: (result as any).debug ?? undefined,
         });
 
         setProcessingStatus(`✅ File ${i + 1}/${totalFiles} done — Score: ${Math.round(result.score)}%`);
@@ -790,6 +793,11 @@ export default function ModuleTestLab() {
                   ))}
                 </CardContent>
               </Card>
+            )}
+
+            {/* Prosody Debug Panel (Sound module only) */}
+            {selectedModule === 'sound' && results.some(r => r.debug) && (
+              <ProsodyDebugPanel results={results} />
             )}
           </motion.div>
         )}

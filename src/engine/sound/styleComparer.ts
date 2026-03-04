@@ -47,11 +47,17 @@ export function compareSoundStyle(
   usr: SoundPatternV2,
   customWeights?: MetricWeights,
 ): SoundCompareResultV2 {
+  // Compute detailed sub-scores with debug info
+  const intonationDebug = computeIntonationDebug(ref, usr);
+  const rhythmDebug = computeRhythmPauseDebug(ref, usr);
+  const energyDebug = computeEnergyDebug(ref, usr);
+  const timbreDebug = computeTimbreDebug(ref, usr);
+
   const rawScores = {
-    intonation: computeIntonation(ref, usr),
-    rhythmPause: computeRhythmPause(ref, usr),
-    energy: computeEnergy(ref, usr),
-    timbre: computeTimbre(ref, usr),
+    intonation: intonationDebug.score,
+    rhythmPause: rhythmDebug.score,
+    energy: energyDebug.score,
+    timbre: timbreDebug.score,
   };
 
   const metrics: MetricWeights = customWeights ?? {
@@ -96,26 +102,77 @@ export function compareSoundStyle(
     qualityFactor: Math.round(qualityFactor * 100) / 100,
     feedback,
     debug: {
-      ...Object.fromEntries(enabledKeys.map(k => [`w_${k}`, normWeights[k]])),
+      // Weights
+      ...Object.fromEntries(enabledKeys.map(k => [`w_${k}`, round3(normWeights[k])])),
+      // Discrimination
+      weightedAvg: round3(base),
+      coreMin: round3(coreMin),
+      discriminationFactor: round3(discriminationFactor),
+      qualityFactor: round3(qualityFactor),
+      // Intonation detail
+      pitch_dtw: round3(intonationDebug.pitchDtw),
+      pitch_pearson: round3(intonationDebug.pitchPearson),
+      pitch_contourSim: round3(intonationDebug.pitchContourSim),
+      slope_dtw: round3(intonationDebug.slopeDtw),
+      slope_pearson: round3(intonationDebug.slopePearson),
+      slope_contourSim: round3(intonationDebug.slopeContourSim),
+      // Energy detail
+      energy_dtw: round3(energyDebug.dtw),
+      energy_pearson: round3(energyDebug.pearson),
+      energy_contourSim: round3(energyDebug.contourSim),
+      // Rhythm detail
+      speechRateSim: round3(rhythmDebug.speechRateSim),
+      regularitySim: round3(rhythmDebug.regularitySim),
+      ioiSim: round3(rhythmDebug.ioiSim),
+      pauseSim: round3(rhythmDebug.pauseSim),
+      ref_speechRate: round3(ref.speechRate),
+      usr_speechRate: round3(usr.speechRate),
+      ref_avgIOI: round3(ref.avgIOI),
+      usr_avgIOI: round3(usr.avgIOI),
+      // Timbre detail
+      voicedSim: round3(timbreDebug.voicedSim),
+      pitchRangeSim: round3(timbreDebug.pitchRangeSim),
+      energyDynSim: round3(timbreDebug.energyDynSim),
     },
   };
 }
 
-// ── Sub-score computation ──
-
-function computeIntonation(ref: SoundPatternV2, usr: SoundPatternV2): number {
-  // Combine DTW distance + Pearson correlation for robust shape matching
-  const contourSim = contourSimilarity(ref.pitchContourNorm, usr.pitchContourNorm);
-  const slopeSim = contourSimilarity(ref.pitchSlope, usr.pitchSlope);
-  return contourSim * 0.6 + slopeSim * 0.4;
+function round3(n: number): number {
+  return Math.round(n * 1000) / 1000;
 }
 
-function computeEnergy(ref: SoundPatternV2, usr: SoundPatternV2): number {
-  return contourSimilarity(ref.energyContourNorm, usr.energyContourNorm);
+// ── Sub-score computation (with debug) ──
+
+interface ContourDebug { dtw: number; pearson: number; contourSim: number; }
+
+function contourSimilarityDebug(a: number[], b: number[]): ContourDebug {
+  if (a.length === 0 || b.length === 0) return { dtw: 0, pearson: 0, contourSim: 0 };
+  const aStable = stabilizeContour(a);
+  const bStable = stabilizeContour(b);
+  const dtw = dtwToSimilarity(aStable, bStable);
+  const pearson = pearsonCorrelation(aStable, bStable);
+  const pearsonSim = Math.max(0, pearson);
+  const contourSim = Math.sqrt(dtw * pearsonSim);
+  return { dtw, pearson, contourSim };
 }
 
-function computeRhythmPause(ref: SoundPatternV2, usr: SoundPatternV2): number {
-  // Unknown rhythm cues should not boost score; use conservative neutral defaults.
+function computeIntonationDebug(ref: SoundPatternV2, usr: SoundPatternV2) {
+  const pitch = contourSimilarityDebug(ref.pitchContourNorm, usr.pitchContourNorm);
+  const slope = contourSimilarityDebug(ref.pitchSlope, usr.pitchSlope);
+  const score = pitch.contourSim * 0.6 + slope.contourSim * 0.4;
+  return {
+    score,
+    pitchDtw: pitch.dtw, pitchPearson: pitch.pearson, pitchContourSim: pitch.contourSim,
+    slopeDtw: slope.dtw, slopePearson: slope.pearson, slopeContourSim: slope.contourSim,
+  };
+}
+
+function computeEnergyDebug(ref: SoundPatternV2, usr: SoundPatternV2) {
+  const d = contourSimilarityDebug(ref.energyContourNorm, usr.energyContourNorm);
+  return { score: d.contourSim, ...d };
+}
+
+function computeRhythmPauseDebug(ref: SoundPatternV2, usr: SoundPatternV2) {
   const speechRateKnown = ref.speechRate > 0.2 && usr.speechRate > 0.2;
   const speechRateSim = speechRateKnown
     ? strictRatioSimilarity(ref.speechRate, usr.speechRate)
@@ -132,14 +189,13 @@ function computeRhythmPause(ref: SoundPatternV2, usr: SoundPatternV2): number {
     : 0.45;
 
   const pauseSim = comparePauses(ref, usr);
-  return speechRateSim * 0.3 + regularitySim * 0.2 + ioiSim * 0.25 + pauseSim * 0.25;
+  const score = speechRateSim * 0.3 + regularitySim * 0.2 + ioiSim * 0.25 + pauseSim * 0.25;
+  return { score, speechRateSim, regularitySim, ioiSim, pauseSim };
 }
 
-function computeTimbre(ref: SoundPatternV2, usr: SoundPatternV2): number {
-  // Multi-factor timbre: voiced ratio + energy variance similarity + pitch range similarity
+function computeTimbreDebug(ref: SoundPatternV2, usr: SoundPatternV2) {
   const voicedSim = Math.max(0, 1 - Math.abs(ref.voicedRatio - usr.voicedRatio) * 3);
 
-  // Pitch range similarity (using pitch contour variance as proxy)
   const refPitchVar = variance(ref.pitchContourNorm);
   const usrPitchVar = variance(usr.pitchContourNorm);
   const pitchRangeSim = strictRatioSimilarity(
@@ -147,7 +203,6 @@ function computeTimbre(ref: SoundPatternV2, usr: SoundPatternV2): number {
     Math.sqrt(usrPitchVar) + 0.01,
   );
 
-  // Energy dynamics similarity (variance of energy contour)
   const refEnergyVar = variance(ref.energyContourNorm);
   const usrEnergyVar = variance(usr.energyContourNorm);
   const energyDynSim = strictRatioSimilarity(
@@ -155,31 +210,14 @@ function computeTimbre(ref: SoundPatternV2, usr: SoundPatternV2): number {
     Math.sqrt(usrEnergyVar) + 0.01,
   );
 
-  return voicedSim * 0.3 + pitchRangeSim * 0.35 + energyDynSim * 0.35;
+  const score = voicedSim * 0.3 + pitchRangeSim * 0.35 + energyDynSim * 0.35;
+  return { score, voicedSim, pitchRangeSim, energyDynSim };
 }
 
-// ── Contour Similarity (DTW × Pearson) ──
+// ── Contour Similarity (legacy wrapper) ──
 
-/**
- * Combined similarity using both DTW distance and Pearson correlation.
- * DTW captures temporal alignment tolerance.
- * Pearson captures overall shape agreement.
- * Final = geometric mean for strong discrimination.
- */
 function contourSimilarity(a: number[], b: number[]): number {
-  if (a.length === 0 || b.length === 0) return 0;
-
-  const aStable = stabilizeContour(a);
-  const bStable = stabilizeContour(b);
-
-  const dtwSim = dtwToSimilarity(aStable, bStable);
-  const pearson = pearsonCorrelation(aStable, bStable);
-  // Convert Pearson (-1..1) to similarity (0..1): only positive correlation counts
-  const pearsonSim = Math.max(0, pearson);
-
-  // Geometric mean: both must be high for a high score
-  // This strongly penalizes when either metric is low
-  return Math.sqrt(dtwSim * pearsonSim);
+  return contourSimilarityDebug(a, b).contourSim;
 }
 
 // ── DTW ──
