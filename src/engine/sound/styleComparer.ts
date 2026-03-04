@@ -253,7 +253,7 @@ function comparePauses(ref: SoundPatternV2, usr: SoundPatternV2): number {
   const refPauses = ref.pausePattern;
   const usrPauses = usr.pausePattern;
 
-  if (refPauses.length === 0 && usrPauses.length === 0) return 1;
+  if (refPauses.length === 0 && usrPauses.length === 0) return 0.45;
   if (refPauses.length === 0 || usrPauses.length === 0) return 0.2;
 
   const refNorm = refPauses.map(p => ({ pos: p.pos / (ref.duration || 1), dur: p.dur }));
