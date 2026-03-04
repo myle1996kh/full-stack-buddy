@@ -45,6 +45,18 @@ describe('Sound V2 - Determinism', () => {
     expect(new Set(scores).size).toBe(1);
     expect(scores[0]).toBeGreaterThan(80); // same input = high score
   });
+
+  it('flat but identical contours still score high (no false zero from Pearson)', () => {
+    const flat = makePattern({
+      pitchContourNorm: new Array(180).fill(0),
+      pitchSlope: new Array(180).fill(0),
+      energyContourNorm: new Array(180).fill(0),
+    });
+
+    const result = compareSoundStyle(flat, flat);
+    expect(result.score).toBeGreaterThan(75);
+    expect(result.breakdown.intonation).toBeGreaterThan(70);
+  });
 });
 
 describe('Sound V2 - Cross-language style', () => {
@@ -71,6 +83,33 @@ describe('Sound V2 - Cross-language style', () => {
 
     const result = compareSoundStyle(expressive, monotone);
     expect(result.breakdown.intonation).toBeLessThan(60);
+  });
+
+  it('strongly mismatched prosody should stay below medium score', () => {
+    const ref = makePattern({
+      pitchContourNorm: new Array(180).fill(0).map((_, i) => Math.sin(i * 0.12) * 2.2),
+      pitchSlope: new Array(180).fill(0).map((_, i) => Math.cos(i * 0.12) * 0.3),
+      energyContourNorm: new Array(180).fill(0).map((_, i) => Math.sin(i * 0.07)),
+      pausePattern: [{ pos: 1.0, dur: 0.35 }, { pos: 2.4, dur: 0.28 }, { pos: 3.7, dur: 0.3 }],
+      speechRate: 4.2,
+      avgIOI: 380,
+      regularity: 0.82,
+      voicedRatio: 0.72,
+    });
+
+    const veryDifferent = makePattern({
+      pitchContourNorm: new Array(180).fill(0).map((_, i) => (i % 24 < 12 ? -2.5 : 2.5)),
+      pitchSlope: new Array(180).fill(0),
+      energyContourNorm: new Array(180).fill(0).map((_, i) => (i % 30 < 5 ? 2 : -1.5)),
+      pausePattern: [],
+      speechRate: 1.6,
+      avgIOI: 980,
+      regularity: 0.22,
+      voicedRatio: 0.35,
+    });
+
+    const result = compareSoundStyle(ref, veryDifferent);
+    expect(result.score).toBeLessThan(60);
   });
 
   it('different speed but same prosody still scores okay (DTW flexibility)', () => {

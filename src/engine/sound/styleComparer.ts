@@ -68,12 +68,20 @@ export function compareSoundStyle(
   const usrQuality = evaluateQuality(usr);
   const qualityFactor = Math.min(refQuality.factor, usrQuality.factor);
 
-  // Score = weighted average of sub-scores
+  // Score = weighted average of enabled sub-scores
   let base = 0;
   for (const key of enabledKeys) {
     base += rawScores[key as keyof typeof rawScores] * normWeights[key];
   }
-  const score = Math.round(Math.max(0, Math.min(100, base * 100)));
+
+  // Discrimination calibration: low core prosody dimensions should cap the final score.
+  const coreKeys = enabledKeys.filter((k) => k === 'intonation' || k === 'rhythmPause' || k === 'energy');
+  const coreMin = coreKeys.length > 0
+    ? Math.min(...coreKeys.map((k) => rawScores[k as keyof typeof rawScores]))
+    : 1;
+  const discriminationFactor = 0.55 + 0.45 * coreMin;
+
+  const score = Math.round(Math.max(0, Math.min(100, base * discriminationFactor * 100)));
 
   const breakdown: Record<string, number> = {};
   for (const key of enabledKeys) {
@@ -107,12 +115,22 @@ function computeEnergy(ref: SoundPatternV2, usr: SoundPatternV2): number {
 }
 
 function computeRhythmPause(ref: SoundPatternV2, usr: SoundPatternV2): number {
-  // Stricter ratio comparison using quadratic penalty
-  const speechRateSim = strictRatioSimilarity(ref.speechRate, usr.speechRate);
-  const regularitySim = Math.max(0, 1 - Math.abs(ref.regularity - usr.regularity) * 2);
-  const ioiSim = ref.avgIOI > 0 && usr.avgIOI > 0
+  // Unknown rhythm cues should not boost score; use conservative neutral defaults.
+  const speechRateKnown = ref.speechRate > 0.2 && usr.speechRate > 0.2;
+  const speechRateSim = speechRateKnown
+    ? strictRatioSimilarity(ref.speechRate, usr.speechRate)
+    : 0.45;
+
+  const regularityKnown = ref.regularity > 0.05 || usr.regularity > 0.05;
+  const regularitySim = regularityKnown
+    ? Math.max(0, 1 - Math.abs(ref.regularity - usr.regularity) * 2)
+    : 0.45;
+
+  const ioiKnown = ref.avgIOI > 0 && usr.avgIOI > 0;
+  const ioiSim = ioiKnown
     ? strictRatioSimilarity(ref.avgIOI, usr.avgIOI)
-    : 0.3; // Unknown = low, not neutral
+    : 0.45;
+
   const pauseSim = comparePauses(ref, usr);
   return speechRateSim * 0.3 + regularitySim * 0.2 + ioiSim * 0.25 + pauseSim * 0.25;
 }
@@ -151,8 +169,11 @@ function computeTimbre(ref: SoundPatternV2, usr: SoundPatternV2): number {
 function contourSimilarity(a: number[], b: number[]): number {
   if (a.length === 0 || b.length === 0) return 0;
 
-  const dtwSim = dtwToSimilarity(a, b);
-  const pearson = pearsonCorrelation(a, b);
+  const aStable = stabilizeContour(a);
+  const bStable = stabilizeContour(b);
+
+  const dtwSim = dtwToSimilarity(aStable, bStable);
+  const pearson = pearsonCorrelation(aStable, bStable);
   // Convert Pearson (-1..1) to similarity (0..1): only positive correlation counts
   const pearsonSim = Math.max(0, pearson);
 
@@ -218,7 +239,11 @@ function pearsonCorrelation(a: number[], b: number[]): number {
   }
 
   const denom = Math.sqrt(varA * varB);
-  if (denom < 1e-10) return 0;
+  if (denom < 1e-10) {
+    // Flat/near-flat contours: treat near-identical as perfect, otherwise unknown mismatch.
+    const mae = meanAbsoluteError(a, b);
+    return mae < 1e-3 ? 1 : 0;
+  }
   return cov / denom;
 }
 
@@ -228,7 +253,7 @@ function comparePauses(ref: SoundPatternV2, usr: SoundPatternV2): number {
   const refPauses = ref.pausePattern;
   const usrPauses = usr.pausePattern;
 
-  if (refPauses.length === 0 && usrPauses.length === 0) return 1;
+  if (refPauses.length === 0 && usrPauses.length === 0) return 0.45;
   if (refPauses.length === 0 || usrPauses.length === 0) return 0.2;
 
   const refNorm = refPauses.map(p => ({ pos: p.pos / (ref.duration || 1), dur: p.dur }));
@@ -264,6 +289,23 @@ function comparePauses(ref: SoundPatternV2, usr: SoundPatternV2): number {
 }
 
 // ── Helpers ──
+
+function stabilizeContour(arr: number[]): number[] {
+  return arr.map((v) => {
+    if (!Number.isFinite(v)) return 0;
+    return Math.round(v * 1000) / 1000;
+  });
+}
+
+function meanAbsoluteError(a: number[], b: number[]): number {
+  const n = Math.min(a.length, b.length);
+  if (n === 0) return Infinity;
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    sum += Math.abs(a[i] - b[i]);
+  }
+  return sum / n;
+}
 
 /**
  * Stricter ratio similarity using quadratic falloff.
