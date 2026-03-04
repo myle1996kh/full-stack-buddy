@@ -8,13 +8,20 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Activity, Volume2, Eye, Upload, Database, Play, Trash2, FileVideo, FileAudio, BarChart3, X } from 'lucide-react';
+import { Activity, Volume2, Eye, Upload, Database, Play, Trash2, FileVideo, FileAudio, BarChart3, X, Loader2 } from 'lucide-react';
 import { getAllModules } from '@/engine/modules/registry';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from 'sonner';
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, Radar, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import type { MSEModuleId, ComparisonResult } from '@/types/modules';
+import {
+  processAudioFile,
+  processVideoForMotion,
+  processVideoForPose,
+  processVideoForEyes,
+  processVideoForSound,
+} from '@/engine/processing/fileProcessor';
+import type { MSEModuleId, ComparisonResult, SoundFrame, EyesFrame, MotionFrame } from '@/types/modules';
 
 const moduleIcons: Record<MSEModuleId, React.ReactNode> = {
   motion: <Activity className="w-4 h-4" />,
@@ -36,7 +43,6 @@ const moduleBorderClass: Record<MSEModuleId, string> = {
 
 interface CompareFile {
   file: File;
-  url?: string;
   name: string;
 }
 
@@ -67,6 +73,7 @@ export default function ModuleTestLab() {
   const [compareFiles, setCompareFiles] = useState<CompareFile[]>([]);
   const [results, setResults] = useState<TestResult[]>([]);
   const [processing, setProcessing] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState('');
   const [progress, setProgress] = useState(0);
   const [loadingLessons, setLoadingLessons] = useState(false);
 
@@ -76,7 +83,6 @@ export default function ModuleTestLab() {
   const currentModule = modules.find(m => m.id === selectedModule)!;
   const currentMethods = currentModule.methods;
 
-  // Set default method when module changes
   const handleModuleChange = (moduleId: MSEModuleId) => {
     setSelectedModule(moduleId);
     const mod = modules.find(m => m.id === moduleId)!;
@@ -85,7 +91,6 @@ export default function ModuleTestLab() {
     setResults([]);
   };
 
-  // Load lessons from database
   const loadLessons = useCallback(async () => {
     setLoadingLessons(true);
     const { data, error } = await supabase
@@ -131,7 +136,26 @@ export default function ModuleTestLab() {
     return 'video/*';
   };
 
-  // Run comparison using module comparers
+  /**
+   * Extract frames from a file using the appropriate processor for the selected module.
+   */
+  async function extractFrames(file: File, moduleId: MSEModuleId): Promise<any[]> {
+    switch (moduleId) {
+      case 'sound':
+        return processAudioFile(file, (p) => setProgress(p));
+      case 'motion':
+        // Use pose detection if method requires it, otherwise use frame diff
+        if (selectedMethod === 'full-pose' || selectedMethod === 'full-body-pose') {
+          return processVideoForPose(file, (p) => setProgress(p));
+        }
+        return processVideoForMotion(file, (p) => setProgress(p));
+      case 'eyes':
+        return processVideoForEyes(file, (p) => setProgress(p));
+      default:
+        return [];
+    }
+  }
+
   const runComparison = async () => {
     if (!user) return;
     if (referenceSource === 'upload' && !referenceFile) {
@@ -152,36 +176,79 @@ export default function ModuleTestLab() {
     setResults([]);
 
     try {
-      // Get the active comparer from module
       const comparer = currentModule.comparers[0];
       const method = currentModule.methods.find(m => m.id === selectedMethod) || currentModule.methods[0];
 
+      // Step 1: Extract reference pattern
+      let referencePattern: any;
+
+      if (referenceSource === 'lesson' && selectedLesson?.reference_pattern) {
+        // Use existing pattern from lesson
+        const patternData = selectedLesson.reference_pattern as any;
+        // Extract module-specific pattern from lesson's reference_pattern
+        if (selectedModule === 'motion' && patternData.motion) {
+          referencePattern = patternData.motion;
+        } else if (selectedModule === 'sound' && patternData.sound) {
+          referencePattern = patternData.sound;
+        } else if (selectedModule === 'eyes' && patternData.eyes) {
+          referencePattern = patternData.eyes;
+        } else {
+          // Fallback: use the whole pattern
+          referencePattern = patternData;
+        }
+        setProcessingStatus('Reference pattern loaded from lesson');
+      } else if (referenceFile) {
+        setProcessingStatus('🎯 Analyzing reference file...');
+        const refFrames = await extractFrames(referenceFile, selectedModule);
+        if (refFrames.length === 0) {
+          throw new Error('Could not extract any frames from reference file');
+        }
+        referencePattern = method.extract(refFrames);
+        setProcessingStatus(`Reference: ${refFrames.length} frames extracted`);
+      } else {
+        throw new Error('No reference source');
+      }
+
+      // Step 2: Process each compare file
       const testResults: TestResult[] = [];
+      const totalFiles = compareFiles.length;
 
-      for (let i = 0; i < compareFiles.length; i++) {
-        setProgress(((i) / compareFiles.length) * 100);
+      for (let i = 0; i < totalFiles; i++) {
+        const cf = compareFiles[i];
+        setProcessingStatus(`📊 Processing file ${i + 1}/${totalFiles}: ${cf.name}`);
+        setProgress(0);
 
-        // Generate mock frames and patterns for comparison
-        // In production, this would process the actual uploaded files through
-        // MediaPipe (for video) or Web Audio API (for audio)
-        const refPattern = generateMockPattern(selectedModule);
-        const comparePattern = generateMockPattern(selectedModule);
+        const compareFrames = await extractFrames(cf.file, selectedModule);
+        if (compareFrames.length === 0) {
+          testResults.push({
+            fileName: cf.name,
+            score: 0,
+            breakdown: {},
+            feedback: ['Could not extract frames from this file'],
+          });
+          continue;
+        }
+
+        const comparePattern = method.extract(compareFrames);
 
         // Use the real module comparer
-        const result: ComparisonResult = comparer.compare(refPattern, comparePattern);
+        const result: ComparisonResult = comparer.compare(referencePattern, comparePattern);
 
         testResults.push({
-          fileName: compareFiles[i].name,
+          fileName: cf.name,
           score: Math.round(result.score * 100),
           breakdown: Object.fromEntries(
             Object.entries(result.breakdown).map(([k, v]) => [k, Math.round(v * 100)])
           ),
           feedback: result.feedback,
         });
+
+        setProcessingStatus(`✅ File ${i + 1}/${totalFiles} done — Score: ${Math.round(result.score * 100)}%`);
       }
 
       setResults(testResults);
       setProgress(100);
+      setProcessingStatus('');
 
       // Save to database
       const refUrl = referenceSource === 'lesson'
@@ -203,7 +270,6 @@ export default function ModuleTestLab() {
 
       if (testErr) throw testErr;
 
-      // Save individual results
       const resultInserts = testResults.map(r => ({
         test_id: testRow.id,
         compare_file_url: r.fileName,
@@ -214,16 +280,17 @@ export default function ModuleTestLab() {
       }));
 
       await supabase.from('module_test_results').insert(resultInserts);
-
-      toast.success(`So sánh hoàn tất! ${testResults.length} kết quả`);
+      toast.success(`So sánh hoàn tất! ${testResults.length} kết quả đã lưu`);
     } catch (err: any) {
-      toast.error(err.message || 'Lỗi khi so sánh');
+      console.error('Module test error:', err);
+      toast.error(err.message || 'Lỗi khi xử lý file');
     } finally {
       setProcessing(false);
+      setProcessingStatus('');
     }
   };
 
-  // Build chart data for results
+  // Chart data
   const barChartData = results.map(r => ({
     name: r.fileName.length > 15 ? r.fileName.slice(0, 12) + '...' : r.fileName,
     score: r.score,
@@ -245,7 +312,7 @@ export default function ModuleTestLab() {
     <div className="space-y-4">
       <h2 className="text-lg font-bold">🧪 Module Test Lab</h2>
       <p className="text-xs text-muted-foreground">
-        Test từng module riêng lẻ. Upload file reference + nhiều file compare để so sánh điểm 1-1.
+        Test từng module riêng lẻ. Upload file reference + nhiều file compare → so sánh điểm 1-1 dùng real engine.
       </p>
 
       {/* Module Selection */}
@@ -422,7 +489,7 @@ export default function ModuleTestLab() {
       >
         {processing ? (
           <>
-            <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+            <Loader2 className="w-4 h-4 animate-spin" />
             Đang xử lý...
           </>
         ) : (
@@ -433,7 +500,16 @@ export default function ModuleTestLab() {
         )}
       </Button>
 
-      {processing && <Progress value={progress} className="h-1.5" />}
+      {processing && (
+        <div className="space-y-2">
+          <Progress value={progress} className="h-1.5" />
+          {processingStatus && (
+            <p className="text-[10px] text-muted-foreground text-center animate-pulse">
+              {processingStatus}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Results */}
       <AnimatePresence>
@@ -567,38 +643,4 @@ export default function ModuleTestLab() {
       </AnimatePresence>
     </div>
   );
-}
-
-// Mock pattern generator — will be replaced with real file processing
-function generateMockPattern(moduleId: MSEModuleId) {
-  const rand = () => Math.random();
-  const randArr = (len: number) => Array.from({ length: len }, () => rand());
-
-  switch (moduleId) {
-    case 'motion':
-      return {
-        segments: [{ type: 'gesture', duration: 2, landmarks: [[rand(), rand()]] }],
-        avgVelocity: rand() * 5,
-        gestureSequence: ['wave', 'point', 'rest'].slice(0, Math.ceil(rand() * 3)),
-      };
-    case 'sound':
-      return {
-        pitchContour: randArr(20),
-        volumeContour: randArr(20),
-        rhythmPattern: randArr(10),
-        avgPitch: 100 + rand() * 200,
-        avgVolume: rand() * 0.8,
-        syllableRate: 2 + rand() * 4,
-      };
-    case 'eyes':
-      return {
-        zoneDwellTimes: { 'center': rand(), 'top-left': rand(), 'top-right': rand(), 'bottom-left': rand(), 'bottom-right': rand() },
-        zoneSequence: ['center', 'top-left', 'center', 'bottom-right'],
-        avgFixationDuration: 200 + rand() * 400,
-        blinkRate: 10 + rand() * 20,
-        primaryZone: 'center',
-      };
-    default:
-      return {};
-  }
 }
