@@ -113,9 +113,19 @@ export default function ModuleTestLab() {
     setLoadingLessons(false);
   }, []);
 
-  const handleReferenceSourceChange = (source: 'upload' | 'lesson') => {
+  const handleReferenceSourceChange = (source: 'upload' | 'lesson' | 'record') => {
     setReferenceSource(source);
     if (source === 'lesson') loadLessons();
+  };
+
+  const handleReferenceRecorded = (file: File) => {
+    setReferenceFile(file);
+    setReferenceSource('upload'); // switch back to show the file
+  };
+
+  const handleCompareRecorded = (file: File) => {
+    setCompareFiles(prev => [...prev, { file, name: file.name }]);
+    setShowCompareRecorder(false);
   };
 
   const handleReferenceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
