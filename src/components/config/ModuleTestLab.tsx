@@ -8,7 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Activity, Volume2, Eye, Upload, Database, Play, Trash2, FileVideo, FileAudio, BarChart3, X, Loader2 } from 'lucide-react';
+import { Activity, Volume2, Eye, Upload, Database, Play, Trash2, FileVideo, FileAudio, BarChart3, X, Loader2, Mic, Video } from 'lucide-react';
+import FileRecorder from '@/components/config/FileRecorder';
 import { getAllModules } from '@/engine/modules/registry';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
@@ -66,11 +67,12 @@ export default function ModuleTestLab() {
 
   const [selectedModule, setSelectedModule] = useState<MSEModuleId>('motion');
   const [selectedMethod, setSelectedMethod] = useState<string>('');
-  const [referenceSource, setReferenceSource] = useState<'upload' | 'lesson'>('upload');
+  const [referenceSource, setReferenceSource] = useState<'upload' | 'lesson' | 'record'>('upload');
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [selectedLesson, setSelectedLesson] = useState<LessonOption | null>(null);
   const [lessons, setLessons] = useState<LessonOption[]>([]);
   const [compareFiles, setCompareFiles] = useState<CompareFile[]>([]);
+  const [showCompareRecorder, setShowCompareRecorder] = useState(false);
   const [results, setResults] = useState<TestResult[]>([]);
   const [processing, setProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
@@ -111,9 +113,19 @@ export default function ModuleTestLab() {
     setLoadingLessons(false);
   }, []);
 
-  const handleReferenceSourceChange = (source: 'upload' | 'lesson') => {
+  const handleReferenceSourceChange = (source: 'upload' | 'lesson' | 'record') => {
     setReferenceSource(source);
     if (source === 'lesson') loadLessons();
+  };
+
+  const handleReferenceRecorded = (file: File) => {
+    setReferenceFile(file);
+    setReferenceSource('upload'); // switch back to show the file
+  };
+
+  const handleCompareRecorded = (file: File) => {
+    setCompareFiles(prev => [...prev, { file, name: file.name }]);
+    setShowCompareRecorder(false);
   };
 
   const handleReferenceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -373,6 +385,15 @@ export default function ModuleTestLab() {
               <Upload className="w-3.5 h-3.5" /> Upload
             </Button>
             <Button
+              variant={referenceSource === 'record' ? 'default' : 'outline'}
+              size="sm"
+              className="gap-1.5 text-xs"
+              onClick={() => handleReferenceSourceChange('record')}
+            >
+              {selectedModule === 'sound' ? <Mic className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
+              Record
+            </Button>
+            <Button
               variant={referenceSource === 'lesson' ? 'default' : 'outline'}
               size="sm"
               className="gap-1.5 text-xs"
@@ -382,50 +403,60 @@ export default function ModuleTestLab() {
             </Button>
           </div>
 
-          {referenceSource === 'upload' ? (
-            <div>
-              <input
-                ref={refInputRef}
-                type="file"
-                accept={getAcceptType()}
-                onChange={handleReferenceUpload}
-                className="hidden"
+          <AnimatePresence mode="wait">
+            {referenceSource === 'record' ? (
+              <FileRecorder
+                key="ref-recorder"
+                moduleId={selectedModule}
+                onRecorded={handleReferenceRecorded}
+                onCancel={() => setReferenceSource('upload')}
               />
-              <Button
-                variant="outline"
-                className="w-full h-20 border-dashed gap-2 text-xs text-muted-foreground"
-                onClick={() => refInputRef.current?.click()}
+            ) : referenceSource === 'upload' ? (
+              <div key="ref-upload">
+                <input
+                  ref={refInputRef}
+                  type="file"
+                  accept={getAcceptType()}
+                  onChange={handleReferenceUpload}
+                  className="hidden"
+                />
+                <Button
+                  variant="outline"
+                  className="w-full h-20 border-dashed gap-2 text-xs text-muted-foreground"
+                  onClick={() => refInputRef.current?.click()}
+                >
+                  {referenceFile ? (
+                    <span className="flex items-center gap-2 text-foreground">
+                      {selectedModule === 'sound' ? <FileAudio className="w-4 h-4" /> : <FileVideo className="w-4 h-4" />}
+                      {referenceFile.name}
+                    </span>
+                  ) : (
+                    <span className="flex flex-col items-center gap-1">
+                      <Upload className="w-5 h-5" />
+                      Upload file reference
+                    </span>
+                  )}
+                </Button>
+              </div>
+            ) : (
+              <Select
+                key="ref-lesson"
+                value={selectedLesson?.id || ''}
+                onValueChange={(id) => setSelectedLesson(lessons.find(l => l.id === id) || null)}
               >
-                {referenceFile ? (
-                  <span className="flex items-center gap-2 text-foreground">
-                    {selectedModule === 'sound' ? <FileAudio className="w-4 h-4" /> : <FileVideo className="w-4 h-4" />}
-                    {referenceFile.name}
-                  </span>
-                ) : (
-                  <span className="flex flex-col items-center gap-1">
-                    <Upload className="w-5 h-5" />
-                    Upload file reference
-                  </span>
-                )}
-              </Button>
-            </div>
-          ) : (
-            <Select
-              value={selectedLesson?.id || ''}
-              onValueChange={(id) => setSelectedLesson(lessons.find(l => l.id === id) || null)}
-            >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder={loadingLessons ? 'Đang tải...' : 'Chọn lesson...'} />
-              </SelectTrigger>
-              <SelectContent>
-                {lessons.map(l => (
-                  <SelectItem key={l.id} value={l.id} className="text-xs">
-                    {l.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder={loadingLessons ? 'Đang tải...' : 'Chọn lesson...'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {lessons.map(l => (
+                    <SelectItem key={l.id} value={l.id} className="text-xs">
+                      {l.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </AnimatePresence>
         </CardContent>
       </Card>
 
@@ -440,22 +471,44 @@ export default function ModuleTestLab() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <input
-            ref={compareInputRef}
-            type="file"
-            accept={getAcceptType()}
-            multiple
-            onChange={handleCompareUpload}
-            className="hidden"
-          />
-          <Button
-            variant="outline"
-            className="w-full h-16 border-dashed gap-2 text-xs text-muted-foreground"
-            onClick={() => compareInputRef.current?.click()}
-          >
-            <Upload className="w-4 h-4" />
-            Upload files để so sánh (có thể chọn nhiều)
-          </Button>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <input
+                ref={compareInputRef}
+                type="file"
+                accept={getAcceptType()}
+                multiple
+                onChange={handleCompareUpload}
+                className="hidden"
+              />
+              <Button
+                variant="outline"
+                className="w-full h-12 border-dashed gap-2 text-xs text-muted-foreground"
+                onClick={() => compareInputRef.current?.click()}
+              >
+                <Upload className="w-4 h-4" />
+                Upload files
+              </Button>
+            </div>
+            <Button
+              variant={showCompareRecorder ? 'default' : 'outline'}
+              className="h-12 gap-1.5 text-xs"
+              onClick={() => setShowCompareRecorder(!showCompareRecorder)}
+            >
+              {selectedModule === 'sound' ? <Mic className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
+              Record
+            </Button>
+          </div>
+
+          <AnimatePresence>
+            {showCompareRecorder && (
+              <FileRecorder
+                moduleId={selectedModule}
+                onRecorded={handleCompareRecorded}
+                onCancel={() => setShowCompareRecorder(false)}
+              />
+            )}
+          </AnimatePresence>
 
           {compareFiles.length > 0 && (
             <div className="space-y-1.5">
