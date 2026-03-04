@@ -1,14 +1,19 @@
 /**
- * Style comparer: cross-language prosodic similarity using DTW.
- * Compares intonation, energy, rhythm/pause, and timbre patterns.
+ * Style comparer V2: cross-language prosodic similarity using DTW + Pearson correlation.
  * Fully deterministic — no randomness.
  * Supports dynamic metric weights and toggling.
+ *
+ * Key discrimination mechanisms:
+ * - DTW with steeper penalty curve (exp coefficient 1.5)
+ * - Pearson correlation for contour shape matching
+ * - Combined DTW×Correlation for each contour comparison
+ * - Stricter rhythm/pause alignment
  */
 
 import type { SoundPatternV2, SoundCompareResultV2 } from './types';
 import { evaluateQuality } from './qualityGate';
 
-// Default weights (used when no custom weights provided)
+// Default weights
 const DEFAULT_WEIGHTS = {
   intonation: 0.10,
   rhythmPause: 0.30,
@@ -23,9 +28,6 @@ export interface MetricWeightInput {
 
 export type MetricWeights = Record<'intonation' | 'rhythmPause' | 'energy' | 'timbre', MetricWeightInput>;
 
-/**
- * Normalize weights so enabled metrics sum to 1.0.
- */
 function normalizeWeights(metrics: MetricWeights): Record<string, number> {
   const entries = Object.entries(metrics).filter(([, v]) => v.enabled);
   const totalWeight = entries.reduce((s, [, v]) => s + v.weight, 0);
@@ -39,14 +41,12 @@ function normalizeWeights(metrics: MetricWeights): Record<string, number> {
 
 /**
  * Compare two sound patterns for cross-language style similarity.
- * Accepts optional dynamic metric weights.
  */
 export function compareSoundStyle(
   ref: SoundPatternV2,
   usr: SoundPatternV2,
   customWeights?: MetricWeights,
 ): SoundCompareResultV2 {
-  // ── Compute raw sub-scores ──
   const rawScores = {
     intonation: computeIntonation(ref, usr),
     rhythmPause: computeRhythmPause(ref, usr),
@@ -54,7 +54,6 @@ export function compareSoundStyle(
     timbre: computeTimbre(ref, usr),
   };
 
-  // ── Determine which metrics are enabled and their normalized weights ──
   const metrics: MetricWeights = customWeights ?? {
     intonation: { enabled: true, weight: DEFAULT_WEIGHTS.intonation },
     rhythmPause: { enabled: true, weight: DEFAULT_WEIGHTS.rhythmPause },
@@ -65,27 +64,22 @@ export function compareSoundStyle(
   const normWeights = normalizeWeights(metrics);
   const enabledKeys = Object.keys(normWeights);
 
-  // ── Quality factor ──
   const refQuality = evaluateQuality(ref);
   const usrQuality = evaluateQuality(usr);
   const qualityFactor = Math.min(refQuality.factor, usrQuality.factor);
 
-  // ── Score fusion (only enabled metrics) ──
-  // Score = weighted average of sub-scores (no quality penalty on main score)
-  // Quality factor is reported separately for transparency
+  // Score = weighted average of sub-scores
   let base = 0;
   for (const key of enabledKeys) {
     base += rawScores[key as keyof typeof rawScores] * normWeights[key];
   }
   const score = Math.round(Math.max(0, Math.min(100, base * 100)));
 
-  // ── Build breakdown (only enabled metrics) ──
   const breakdown: Record<string, number> = {};
   for (const key of enabledKeys) {
     breakdown[key] = Math.round(rawScores[key as keyof typeof rawScores] * 100);
   }
 
-  // ── Feedback ──
   const feedback = generateFeedback(rawScores, enabledKeys, qualityFactor, usrQuality.warnings);
 
   return {
@@ -102,37 +96,77 @@ export function compareSoundStyle(
 // ── Sub-score computation ──
 
 function computeIntonation(ref: SoundPatternV2, usr: SoundPatternV2): number {
-  const pitchContourSim = dtwSimilarity(ref.pitchContourNorm, usr.pitchContourNorm);
-  const pitchSlopeSim = dtwSimilarity(ref.pitchSlope, usr.pitchSlope);
-  return pitchContourSim * 0.6 + pitchSlopeSim * 0.4;
+  // Combine DTW distance + Pearson correlation for robust shape matching
+  const contourSim = contourSimilarity(ref.pitchContourNorm, usr.pitchContourNorm);
+  const slopeSim = contourSimilarity(ref.pitchSlope, usr.pitchSlope);
+  return contourSim * 0.6 + slopeSim * 0.4;
 }
 
 function computeEnergy(ref: SoundPatternV2, usr: SoundPatternV2): number {
-  return dtwSimilarity(ref.energyContourNorm, usr.energyContourNorm);
+  return contourSimilarity(ref.energyContourNorm, usr.energyContourNorm);
 }
 
 function computeRhythmPause(ref: SoundPatternV2, usr: SoundPatternV2): number {
-  const speechRateSim = ratioSimilarity(ref.speechRate, usr.speechRate);
-  const regularitySim = 1 - Math.abs(ref.regularity - usr.regularity);
+  // Stricter ratio comparison using quadratic penalty
+  const speechRateSim = strictRatioSimilarity(ref.speechRate, usr.speechRate);
+  const regularitySim = Math.max(0, 1 - Math.abs(ref.regularity - usr.regularity) * 2);
   const ioiSim = ref.avgIOI > 0 && usr.avgIOI > 0
-    ? ratioSimilarity(ref.avgIOI, usr.avgIOI)
-    : 0.5;
+    ? strictRatioSimilarity(ref.avgIOI, usr.avgIOI)
+    : 0.3; // Unknown = low, not neutral
   const pauseSim = comparePauses(ref, usr);
   return speechRateSim * 0.3 + regularitySim * 0.2 + ioiSim * 0.25 + pauseSim * 0.25;
 }
 
 function computeTimbre(ref: SoundPatternV2, usr: SoundPatternV2): number {
-  return 1 - Math.abs(ref.voicedRatio - usr.voicedRatio);
+  // Multi-factor timbre: voiced ratio + energy variance similarity + pitch range similarity
+  const voicedSim = Math.max(0, 1 - Math.abs(ref.voicedRatio - usr.voicedRatio) * 3);
+
+  // Pitch range similarity (using pitch contour variance as proxy)
+  const refPitchVar = variance(ref.pitchContourNorm);
+  const usrPitchVar = variance(usr.pitchContourNorm);
+  const pitchRangeSim = strictRatioSimilarity(
+    Math.sqrt(refPitchVar) + 0.01,
+    Math.sqrt(usrPitchVar) + 0.01,
+  );
+
+  // Energy dynamics similarity (variance of energy contour)
+  const refEnergyVar = variance(ref.energyContourNorm);
+  const usrEnergyVar = variance(usr.energyContourNorm);
+  const energyDynSim = strictRatioSimilarity(
+    Math.sqrt(refEnergyVar) + 0.01,
+    Math.sqrt(usrEnergyVar) + 0.01,
+  );
+
+  return voicedSim * 0.3 + pitchRangeSim * 0.35 + energyDynSim * 0.35;
 }
 
-// ── DTW (Dynamic Time Warping) ──
+// ── Contour Similarity (DTW × Pearson) ──
 
-function dtwSimilarity(a: number[], b: number[]): number {
+/**
+ * Combined similarity using both DTW distance and Pearson correlation.
+ * DTW captures temporal alignment tolerance.
+ * Pearson captures overall shape agreement.
+ * Final = geometric mean for strong discrimination.
+ */
+function contourSimilarity(a: number[], b: number[]): number {
   if (a.length === 0 || b.length === 0) return 0;
 
+  const dtwSim = dtwToSimilarity(a, b);
+  const pearson = pearsonCorrelation(a, b);
+  // Convert Pearson (-1..1) to similarity (0..1): only positive correlation counts
+  const pearsonSim = Math.max(0, pearson);
+
+  // Geometric mean: both must be high for a high score
+  // This strongly penalizes when either metric is low
+  return Math.sqrt(dtwSim * pearsonSim);
+}
+
+// ── DTW ──
+
+function dtwToSimilarity(a: number[], b: number[]): number {
   const n = a.length;
   const m = b.length;
-  const bandWidth = Math.max(10, Math.floor(Math.max(n, m) * 0.2));
+  const bandWidth = Math.max(10, Math.floor(Math.max(n, m) * 0.15));
 
   let prev = new Float64Array(m + 1).fill(Infinity);
   let curr = new Float64Array(m + 1).fill(Infinity);
@@ -156,8 +190,36 @@ function dtwSimilarity(a: number[], b: number[]): number {
 
   const pathLen = Math.max(n, m);
   const avgDist = Math.sqrt(dtwDist / pathLen);
-  const similarity = Math.exp(-avgDist * 0.7);
+
+  // Steeper decay: coefficient 1.5 (was 0.7)
+  // dist=0 → 1.0, dist=0.5 → 0.47, dist=1.0 → 0.22, dist=2.0 → 0.05
+  const similarity = Math.exp(-avgDist * 1.5);
   return Math.max(0, Math.min(1, similarity));
+}
+
+// ── Pearson Correlation ──
+
+function pearsonCorrelation(a: number[], b: number[]): number {
+  const n = Math.min(a.length, b.length);
+  if (n < 3) return 0;
+
+  let sumA = 0, sumB = 0;
+  for (let i = 0; i < n; i++) { sumA += a[i]; sumB += b[i]; }
+  const meanA = sumA / n;
+  const meanB = sumB / n;
+
+  let cov = 0, varA = 0, varB = 0;
+  for (let i = 0; i < n; i++) {
+    const da = a[i] - meanA;
+    const db = b[i] - meanB;
+    cov += da * db;
+    varA += da * da;
+    varB += db * db;
+  }
+
+  const denom = Math.sqrt(varA * varB);
+  if (denom < 1e-10) return 0;
+  return cov / denom;
 }
 
 // ── Pause Alignment ──
@@ -167,13 +229,14 @@ function comparePauses(ref: SoundPatternV2, usr: SoundPatternV2): number {
   const usrPauses = usr.pausePattern;
 
   if (refPauses.length === 0 && usrPauses.length === 0) return 1;
-  if (refPauses.length === 0 || usrPauses.length === 0) return 0.3;
+  if (refPauses.length === 0 || usrPauses.length === 0) return 0.2;
 
   const refNorm = refPauses.map(p => ({ pos: p.pos / (ref.duration || 1), dur: p.dur }));
   const usrNorm = usrPauses.map(p => ({ pos: p.pos / (usr.duration || 1), dur: p.dur }));
 
-  const tolerance = 0.1;
+  const tolerance = 0.08; // Stricter: 8% position tolerance (was 10%)
   let matched = 0;
+  let durSim = 0;
   const used = new Set<number>();
 
   for (const rp of refNorm) {
@@ -186,21 +249,37 @@ function comparePauses(ref: SoundPatternV2, usr: SoundPatternV2): number {
     }
     if (bestIdx >= 0 && bestDist <= tolerance) {
       matched++;
+      // Also compare pause duration
+      durSim += strictRatioSimilarity(rp.dur, usrNorm[bestIdx].dur);
       used.add(bestIdx);
     }
   }
 
-  const countSim = matched / Math.max(refNorm.length, usrNorm.length);
-  const countRatio = ratioSimilarity(refPauses.length, usrPauses.length);
-  return countSim * 0.7 + countRatio * 0.3;
+  const maxPauses = Math.max(refNorm.length, usrNorm.length);
+  const positionSim = matched / maxPauses;
+  const avgDurSim = matched > 0 ? durSim / matched : 0;
+  const countPenalty = strictRatioSimilarity(refPauses.length, usrPauses.length);
+
+  return positionSim * 0.5 + avgDurSim * 0.2 + countPenalty * 0.3;
 }
 
 // ── Helpers ──
 
-function ratioSimilarity(a: number, b: number): number {
+/**
+ * Stricter ratio similarity using quadratic falloff.
+ * ratio=1 → 1.0, ratio=0.5 → 0.25, ratio=0.33 → 0.11
+ */
+function strictRatioSimilarity(a: number, b: number): number {
   if (a === 0 && b === 0) return 1;
   if (a === 0 || b === 0) return 0;
-  return Math.min(a, b) / Math.max(a, b);
+  const ratio = Math.min(a, b) / Math.max(a, b);
+  return ratio * ratio; // Quadratic: penalizes differences more
+}
+
+function variance(arr: number[]): number {
+  if (arr.length < 2) return 0;
+  const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+  return arr.reduce((s, v) => s + (v - mean) ** 2, 0) / arr.length;
 }
 
 function generateFeedback(
@@ -213,24 +292,26 @@ function generateFeedback(
   feedback.push(...qualityWarnings);
 
   if (enabledKeys.includes('intonation')) {
-    if (scores.intonation < 0.4) feedback.push('Intonation pattern differs significantly — try matching the pitch rise/fall pattern');
-    else if (scores.intonation < 0.6) feedback.push('Intonation partially matches — focus on key pitch movements');
+    if (scores.intonation < 0.3) feedback.push('Intonation pattern is very different — the pitch rise/fall shape doesn\'t match');
+    else if (scores.intonation < 0.5) feedback.push('Intonation partially matches — focus on mimicking the melody of speech');
   }
   if (enabledKeys.includes('rhythmPause')) {
-    if (scores.rhythmPause < 0.4) feedback.push('Rhythm and pause timing are very different from reference');
-    else if (scores.rhythmPause < 0.6) feedback.push('Timing needs work — pay attention to pause placement and speech rate');
+    if (scores.rhythmPause < 0.3) feedback.push('Rhythm and pause timing are very different');
+    else if (scores.rhythmPause < 0.5) feedback.push('Timing needs work — match the pause placement and speaking speed');
   }
   if (enabledKeys.includes('energy')) {
-    if (scores.energy < 0.4) feedback.push('Energy/volume dynamics differ — match the emphasis patterns');
-    else if (scores.energy < 0.6) feedback.push('Volume dynamics partially match — try more expressive delivery');
+    if (scores.energy < 0.3) feedback.push('Volume/emphasis pattern is very different from reference');
+    else if (scores.energy < 0.5) feedback.push('Try matching the loud/soft dynamics more closely');
   }
   if (enabledKeys.includes('timbre')) {
-    if (scores.timbre < 0.4) feedback.push('Vocal quality differs — try a similar tone');
+    if (scores.timbre < 0.3) feedback.push('Vocal character differs significantly — try matching the expressiveness level');
+    else if (scores.timbre < 0.5) feedback.push('Vocal dynamics partially match');
   }
 
   const avg = enabledKeys.reduce((s, k) => s + scores[k], 0) / (enabledKeys.length || 1);
-  if (avg >= 0.8) feedback.push('Excellent prosodic match! Great style similarity.');
-  else if (avg >= 0.7) feedback.push('Good overall style match.');
+  if (avg >= 0.8) feedback.push('Excellent prosodic match! Very similar speaking style.');
+  else if (avg >= 0.65) feedback.push('Good style similarity overall.');
+  else if (avg >= 0.5) feedback.push('Moderate similarity — keep practicing the style.');
 
   return feedback;
 }
