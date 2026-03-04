@@ -239,7 +239,11 @@ function pearsonCorrelation(a: number[], b: number[]): number {
   }
 
   const denom = Math.sqrt(varA * varB);
-  if (denom < 1e-10) return 0;
+  if (denom < 1e-10) {
+    // Flat/near-flat contours: treat near-identical as perfect, otherwise unknown mismatch.
+    const mae = meanAbsoluteError(a, b);
+    return mae < 1e-3 ? 1 : 0;
+  }
   return cov / denom;
 }
 
