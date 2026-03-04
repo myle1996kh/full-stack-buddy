@@ -657,16 +657,29 @@ export default function ModuleTestLab() {
                       <RadarChart data={radarData}>
                         <PolarGrid stroke="hsl(var(--border))" />
                         <PolarAngleAxis dataKey="metric" tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }} />
-                        {results.map((_, i) => (
-                          <Radar
-                            key={i}
-                            name={`File ${i + 1}`}
-                            dataKey={`File ${i + 1}`}
-                            stroke={radarColors[i % radarColors.length]}
-                            fill={radarColors[i % radarColors.length]}
-                            fillOpacity={0.15}
-                          />
-                        ))}
+                        <Radar
+                          key="reference"
+                          name={referenceName}
+                          dataKey="Reference"
+                          stroke="hsl(var(--primary))"
+                          fill="hsl(var(--primary))"
+                          fillOpacity={0.08}
+                          strokeDasharray="4 3"
+                          strokeWidth={2}
+                        />
+                        {results.map((r, i) => {
+                          const label = r.fileName.length > 20 ? r.fileName.slice(0, 17) + '...' : r.fileName;
+                          return (
+                            <Radar
+                              key={i}
+                              name={label}
+                              dataKey={label}
+                              stroke={radarColors[(i + 1) % radarColors.length]}
+                              fill={radarColors[(i + 1) % radarColors.length]}
+                              fillOpacity={0.15}
+                            />
+                          );
+                        })}
                         <Legend wrapperStyle={{ fontSize: 10 }} />
                       </RadarChart>
                     </ResponsiveContainer>
