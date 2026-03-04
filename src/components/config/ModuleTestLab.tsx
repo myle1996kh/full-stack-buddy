@@ -385,6 +385,15 @@ export default function ModuleTestLab() {
               <Upload className="w-3.5 h-3.5" /> Upload
             </Button>
             <Button
+              variant={referenceSource === 'record' ? 'default' : 'outline'}
+              size="sm"
+              className="gap-1.5 text-xs"
+              onClick={() => handleReferenceSourceChange('record')}
+            >
+              {selectedModule === 'sound' ? <Mic className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
+              Record
+            </Button>
+            <Button
               variant={referenceSource === 'lesson' ? 'default' : 'outline'}
               size="sm"
               className="gap-1.5 text-xs"
@@ -394,50 +403,60 @@ export default function ModuleTestLab() {
             </Button>
           </div>
 
-          {referenceSource === 'upload' ? (
-            <div>
-              <input
-                ref={refInputRef}
-                type="file"
-                accept={getAcceptType()}
-                onChange={handleReferenceUpload}
-                className="hidden"
+          <AnimatePresence mode="wait">
+            {referenceSource === 'record' ? (
+              <FileRecorder
+                key="ref-recorder"
+                moduleId={selectedModule}
+                onRecorded={handleReferenceRecorded}
+                onCancel={() => setReferenceSource('upload')}
               />
-              <Button
-                variant="outline"
-                className="w-full h-20 border-dashed gap-2 text-xs text-muted-foreground"
-                onClick={() => refInputRef.current?.click()}
+            ) : referenceSource === 'upload' ? (
+              <div key="ref-upload">
+                <input
+                  ref={refInputRef}
+                  type="file"
+                  accept={getAcceptType()}
+                  onChange={handleReferenceUpload}
+                  className="hidden"
+                />
+                <Button
+                  variant="outline"
+                  className="w-full h-20 border-dashed gap-2 text-xs text-muted-foreground"
+                  onClick={() => refInputRef.current?.click()}
+                >
+                  {referenceFile ? (
+                    <span className="flex items-center gap-2 text-foreground">
+                      {selectedModule === 'sound' ? <FileAudio className="w-4 h-4" /> : <FileVideo className="w-4 h-4" />}
+                      {referenceFile.name}
+                    </span>
+                  ) : (
+                    <span className="flex flex-col items-center gap-1">
+                      <Upload className="w-5 h-5" />
+                      Upload file reference
+                    </span>
+                  )}
+                </Button>
+              </div>
+            ) : (
+              <Select
+                key="ref-lesson"
+                value={selectedLesson?.id || ''}
+                onValueChange={(id) => setSelectedLesson(lessons.find(l => l.id === id) || null)}
               >
-                {referenceFile ? (
-                  <span className="flex items-center gap-2 text-foreground">
-                    {selectedModule === 'sound' ? <FileAudio className="w-4 h-4" /> : <FileVideo className="w-4 h-4" />}
-                    {referenceFile.name}
-                  </span>
-                ) : (
-                  <span className="flex flex-col items-center gap-1">
-                    <Upload className="w-5 h-5" />
-                    Upload file reference
-                  </span>
-                )}
-              </Button>
-            </div>
-          ) : (
-            <Select
-              value={selectedLesson?.id || ''}
-              onValueChange={(id) => setSelectedLesson(lessons.find(l => l.id === id) || null)}
-            >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder={loadingLessons ? 'Đang tải...' : 'Chọn lesson...'} />
-              </SelectTrigger>
-              <SelectContent>
-                {lessons.map(l => (
-                  <SelectItem key={l.id} value={l.id} className="text-xs">
-                    {l.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder={loadingLessons ? 'Đang tải...' : 'Chọn lesson...'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {lessons.map(l => (
+                    <SelectItem key={l.id} value={l.id} className="text-xs">
+                      {l.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </AnimatePresence>
         </CardContent>
       </Card>
 
