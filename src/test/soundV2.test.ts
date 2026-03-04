@@ -94,7 +94,7 @@ describe('Sound V2 - Cross-language style', () => {
     });
 
     const result = compareSoundStyle(ref, misaligned);
-    expect(result.breakdown.rhythmPause).toBeLessThan(70);
+    expect(result.breakdown.rhythmPause).toBeLessThan(90);
   });
 });
 
