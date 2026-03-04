@@ -47,11 +47,17 @@ export function compareSoundStyle(
   usr: SoundPatternV2,
   customWeights?: MetricWeights,
 ): SoundCompareResultV2 {
+  // Compute detailed sub-scores with debug info
+  const intonationDebug = computeIntonationDebug(ref, usr);
+  const rhythmDebug = computeRhythmPauseDebug(ref, usr);
+  const energyDebug = computeEnergyDebug(ref, usr);
+  const timbreDebug = computeTimbreDebug(ref, usr);
+
   const rawScores = {
-    intonation: computeIntonation(ref, usr),
-    rhythmPause: computeRhythmPause(ref, usr),
-    energy: computeEnergy(ref, usr),
-    timbre: computeTimbre(ref, usr),
+    intonation: intonationDebug.score,
+    rhythmPause: rhythmDebug.score,
+    energy: energyDebug.score,
+    timbre: timbreDebug.score,
   };
 
   const metrics: MetricWeights = customWeights ?? {
@@ -96,9 +102,43 @@ export function compareSoundStyle(
     qualityFactor: Math.round(qualityFactor * 100) / 100,
     feedback,
     debug: {
-      ...Object.fromEntries(enabledKeys.map(k => [`w_${k}`, normWeights[k]])),
+      // Weights
+      ...Object.fromEntries(enabledKeys.map(k => [`w_${k}`, round3(normWeights[k])])),
+      // Discrimination
+      weightedAvg: round3(base),
+      coreMin: round3(coreMin),
+      discriminationFactor: round3(discriminationFactor),
+      qualityFactor: round3(qualityFactor),
+      // Intonation detail
+      pitch_dtw: round3(intonationDebug.pitchDtw),
+      pitch_pearson: round3(intonationDebug.pitchPearson),
+      pitch_contourSim: round3(intonationDebug.pitchContourSim),
+      slope_dtw: round3(intonationDebug.slopeDtw),
+      slope_pearson: round3(intonationDebug.slopePearson),
+      slope_contourSim: round3(intonationDebug.slopeContourSim),
+      // Energy detail
+      energy_dtw: round3(energyDebug.dtw),
+      energy_pearson: round3(energyDebug.pearson),
+      energy_contourSim: round3(energyDebug.contourSim),
+      // Rhythm detail
+      speechRateSim: round3(rhythmDebug.speechRateSim),
+      regularitySim: round3(rhythmDebug.regularitySim),
+      ioiSim: round3(rhythmDebug.ioiSim),
+      pauseSim: round3(rhythmDebug.pauseSim),
+      ref_speechRate: round3(ref.speechRate),
+      usr_speechRate: round3(usr.speechRate),
+      ref_avgIOI: round3(ref.avgIOI),
+      usr_avgIOI: round3(usr.avgIOI),
+      // Timbre detail
+      voicedSim: round3(timbreDebug.voicedSim),
+      pitchRangeSim: round3(timbreDebug.pitchRangeSim),
+      energyDynSim: round3(timbreDebug.energyDynSim),
     },
   };
+}
+
+function round3(n: number): number {
+  return Math.round(n * 1000) / 1000;
 }
 
 // ── Sub-score computation ──
