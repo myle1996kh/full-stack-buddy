@@ -131,6 +131,18 @@ export default function SettingsPage() {
             <ModuleConfig />
           </motion.div>
         )}
+
+        {activeTab === 'test-lab' && (
+          <motion.div
+            key="test-lab"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.25 }}
+          >
+            <ModuleTestLab />
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );
