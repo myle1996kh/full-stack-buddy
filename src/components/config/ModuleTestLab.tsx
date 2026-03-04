@@ -63,6 +63,7 @@ interface TestResult {
   score: number;
   breakdown: Record<string, number>;
   feedback: string[];
+  debug?: Record<string, number>;
 }
 
 interface LessonOption {
