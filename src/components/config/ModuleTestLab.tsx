@@ -273,6 +273,7 @@ export default function ModuleTestLab() {
             Object.entries(result.breakdown).map(([k, v]) => [k, Math.round(v)])
           ),
           feedback: result.feedback,
+          debug: (result as any).debug ?? undefined,
         });
 
         setProcessingStatus(`✅ File ${i + 1}/${totalFiles} done — Score: ${Math.round(result.score)}%`);

@@ -125,6 +125,7 @@ export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
             score: result.score,
             breakdown: result.breakdown,
             feedback: result.feedback,
+            debug: result.debug,
           };
         }
 
