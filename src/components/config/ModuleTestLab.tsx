@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Activity, Volume2, Eye, Upload, Database, Play, Trash2, FileVideo, FileAudio, BarChart3, X, Loader2, Mic, Video, SlidersHorizontal } from 'lucide-react';
 import FileRecorder from '@/components/config/FileRecorder';
+import ProsodyDebugPanel from '@/components/config/ProsodyDebugPanel';
 import { getAllModules } from '@/engine/modules/registry';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
