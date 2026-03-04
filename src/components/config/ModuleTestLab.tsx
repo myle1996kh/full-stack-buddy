@@ -248,14 +248,14 @@ export default function ModuleTestLab() {
 
         testResults.push({
           fileName: cf.name,
-          score: Math.round(result.score * 100),
+          score: Math.round(result.score),
           breakdown: Object.fromEntries(
-            Object.entries(result.breakdown).map(([k, v]) => [k, Math.round(v * 100)])
+            Object.entries(result.breakdown).map(([k, v]) => [k, Math.round(v)])
           ),
           feedback: result.feedback,
         });
 
-        setProcessingStatus(`✅ File ${i + 1}/${totalFiles} done — Score: ${Math.round(result.score * 100)}%`);
+        setProcessingStatus(`✅ File ${i + 1}/${totalFiles} done — Score: ${Math.round(result.score)}%`);
       }
 
       setResults(testResults);
