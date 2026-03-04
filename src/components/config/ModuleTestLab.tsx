@@ -67,11 +67,12 @@ export default function ModuleTestLab() {
 
   const [selectedModule, setSelectedModule] = useState<MSEModuleId>('motion');
   const [selectedMethod, setSelectedMethod] = useState<string>('');
-  const [referenceSource, setReferenceSource] = useState<'upload' | 'lesson'>('upload');
+  const [referenceSource, setReferenceSource] = useState<'upload' | 'lesson' | 'record'>('upload');
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [selectedLesson, setSelectedLesson] = useState<LessonOption | null>(null);
   const [lessons, setLessons] = useState<LessonOption[]>([]);
   const [compareFiles, setCompareFiles] = useState<CompareFile[]>([]);
+  const [showCompareRecorder, setShowCompareRecorder] = useState(false);
   const [results, setResults] = useState<TestResult[]>([]);
   const [processing, setProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
