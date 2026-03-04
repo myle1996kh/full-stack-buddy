@@ -6,11 +6,22 @@
 
 import type { MSEModule, SoundFrame, SoundPattern } from '@/types/modules';
 import {
-  processAudioFileV2,
   extractSoundPatternV2,
-  compareSoundStyleCrossLanguage,
 } from '@/engine/sound/index';
-import type { SoundPatternV2, SoundCompareResultV2 } from '@/engine/sound/types';
+import { compareSoundStyle } from '@/engine/sound/styleComparer';
+import type { MetricWeights } from '@/engine/sound/styleComparer';
+import type { SoundPatternV2 } from '@/engine/sound/types';
+
+// Global dynamic weights — set from UI before running compare
+let _dynamicWeights: MetricWeights | undefined = undefined;
+
+export function setSoundMetricWeights(weights: MetricWeights | undefined) {
+  _dynamicWeights = weights;
+}
+
+export function getSoundMetricWeights(): MetricWeights | undefined {
+  return _dynamicWeights;
+}
 
 /**
  * Bridge: convert old SoundFrame[] to V2 frames for pattern extraction.
@@ -103,12 +114,13 @@ export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
       isDefault: true,
       enabled: true,
       compare: (ref: SoundPattern, learner: SoundPattern) => {
-        // Use V2 patterns if available, otherwise build from legacy data
         const refV2 = (ref as any)._v2 as SoundPatternV2 | undefined;
         const learnerV2 = (learner as any)._v2 as SoundPatternV2 | undefined;
 
+        const weights = _dynamicWeights;
+
         if (refV2 && learnerV2) {
-          const result = compareSoundStyleCrossLanguage(refV2, learnerV2);
+          const result = compareSoundStyle(refV2, learnerV2, weights);
           return {
             score: result.score,
             breakdown: result.breakdown,
@@ -116,11 +128,9 @@ export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
           };
         }
 
-        // Fallback: build V2 patterns from legacy frames on the fly
-        // This shouldn't normally happen since extract() now attaches _v2
         const fallbackRef = buildFallbackV2(ref);
         const fallbackLearner = buildFallbackV2(learner);
-        const result = compareSoundStyleCrossLanguage(fallbackRef, fallbackLearner);
+        const result = compareSoundStyle(fallbackRef, fallbackLearner, weights);
         return {
           score: result.score,
           breakdown: result.breakdown,
