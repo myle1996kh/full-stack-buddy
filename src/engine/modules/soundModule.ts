@@ -134,7 +134,6 @@ export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
 // ── Fallback V2 builder from legacy SoundPattern ──
 
 function buildFallbackV2(pattern: SoundPattern): SoundPatternV2 {
-  const { resample } = require('@/engine/sound/patternExtractor');
   const CONTOUR_LENGTH = 180;
 
   // Convert pitch to semitones
