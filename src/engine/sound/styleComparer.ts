@@ -71,11 +71,13 @@ export function compareSoundStyle(
   const qualityFactor = Math.min(refQuality.factor, usrQuality.factor);
 
   // ── Score fusion (only enabled metrics) ──
+  // Score = weighted average of sub-scores (no quality penalty on main score)
+  // Quality factor is reported separately for transparency
   let base = 0;
   for (const key of enabledKeys) {
     base += rawScores[key as keyof typeof rawScores] * normWeights[key];
   }
-  const score = Math.round(Math.max(0, Math.min(100, qualityFactor * base * 100)));
+  const score = Math.round(Math.max(0, Math.min(100, base * 100)));
 
   // ── Build breakdown (only enabled metrics) ──
   const breakdown: Record<string, number> = {};
