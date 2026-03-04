@@ -74,6 +74,7 @@ interface LessonOption {
 
 export default function ModuleTestLab() {
   const { user } = useAuthStore();
+  const { soundMetrics, toggleSoundMetric, setSoundMetricWeight } = useModuleStore();
   const modules = getAllModules();
 
   const [selectedModule, setSelectedModule] = useState<MSEModuleId>('motion');
