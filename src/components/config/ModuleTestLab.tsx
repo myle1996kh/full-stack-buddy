@@ -471,22 +471,44 @@ export default function ModuleTestLab() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <input
-            ref={compareInputRef}
-            type="file"
-            accept={getAcceptType()}
-            multiple
-            onChange={handleCompareUpload}
-            className="hidden"
-          />
-          <Button
-            variant="outline"
-            className="w-full h-16 border-dashed gap-2 text-xs text-muted-foreground"
-            onClick={() => compareInputRef.current?.click()}
-          >
-            <Upload className="w-4 h-4" />
-            Upload files để so sánh (có thể chọn nhiều)
-          </Button>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <input
+                ref={compareInputRef}
+                type="file"
+                accept={getAcceptType()}
+                multiple
+                onChange={handleCompareUpload}
+                className="hidden"
+              />
+              <Button
+                variant="outline"
+                className="w-full h-12 border-dashed gap-2 text-xs text-muted-foreground"
+                onClick={() => compareInputRef.current?.click()}
+              >
+                <Upload className="w-4 h-4" />
+                Upload files
+              </Button>
+            </div>
+            <Button
+              variant={showCompareRecorder ? 'default' : 'outline'}
+              className="h-12 gap-1.5 text-xs"
+              onClick={() => setShowCompareRecorder(!showCompareRecorder)}
+            >
+              {selectedModule === 'sound' ? <Mic className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
+              Record
+            </Button>
+          </div>
+
+          <AnimatePresence>
+            {showCompareRecorder && (
+              <FileRecorder
+                moduleId={selectedModule}
+                onRecorded={handleCompareRecorded}
+                onCancel={() => setShowCompareRecorder(false)}
+              />
+            )}
+          </AnimatePresence>
 
           {compareFiles.length > 0 && (
             <div className="space-y-1.5">
