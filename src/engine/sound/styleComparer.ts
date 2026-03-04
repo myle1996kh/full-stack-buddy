@@ -8,10 +8,10 @@ import type { SoundPatternV2, SoundCompareResultV2 } from './types';
 import { evaluateQuality } from './qualityGate';
 
 // Weights for final score fusion
-const W_INTONATION = 0.45;
+const W_INTONATION = 0.10;
 const W_RHYTHM = 0.30;
-const W_ENERGY = 0.20;
-const W_TIMBRE = 0.05;
+const W_ENERGY = 0.30;
+const W_TIMBRE = 0.30;
 
 /**
  * Compare two sound patterns for cross-language style similarity.
