@@ -169,8 +169,11 @@ function computeTimbre(ref: SoundPatternV2, usr: SoundPatternV2): number {
 function contourSimilarity(a: number[], b: number[]): number {
   if (a.length === 0 || b.length === 0) return 0;
 
-  const dtwSim = dtwToSimilarity(a, b);
-  const pearson = pearsonCorrelation(a, b);
+  const aStable = stabilizeContour(a);
+  const bStable = stabilizeContour(b);
+
+  const dtwSim = dtwToSimilarity(aStable, bStable);
+  const pearson = pearsonCorrelation(aStable, bStable);
   // Convert Pearson (-1..1) to similarity (0..1): only positive correlation counts
   const pearsonSim = Math.max(0, pearson);
 
