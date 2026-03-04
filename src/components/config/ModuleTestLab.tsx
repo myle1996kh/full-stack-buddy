@@ -308,17 +308,23 @@ export default function ModuleTestLab() {
     score: r.score,
   }));
 
+  const referenceName = referenceSource === 'lesson'
+    ? `📌 ${selectedLesson?.title || 'Lesson'}`
+    : `📌 ${referenceFile?.name || 'Reference'}`;
+
   const radarData = results.length > 0
     ? Object.keys(results[0].breakdown).map(key => {
         const entry: Record<string, any> = { metric: key };
+        entry['Reference'] = 100; // Captain's reference is always the baseline (100%)
         results.forEach((r, i) => {
-          entry[`File ${i + 1}`] = r.breakdown[key] || 0;
+          const label = r.fileName.length > 20 ? r.fileName.slice(0, 17) + '...' : r.fileName;
+          entry[label] = r.breakdown[key] || 0;
         });
         return entry;
       })
     : [];
 
-  const radarColors = ['hsl(var(--mse-motion))', 'hsl(var(--mse-sound))', 'hsl(var(--mse-eyes))', 'hsl(var(--primary))'];
+  const radarColors = ['hsl(var(--primary))', 'hsl(var(--mse-motion))', 'hsl(var(--mse-sound))', 'hsl(var(--mse-eyes))', 'hsl(var(--accent-foreground))'];
 
   return (
     <div className="space-y-4">
