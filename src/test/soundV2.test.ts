@@ -45,6 +45,18 @@ describe('Sound V2 - Determinism', () => {
     expect(new Set(scores).size).toBe(1);
     expect(scores[0]).toBeGreaterThan(80); // same input = high score
   });
+
+  it('flat but identical contours still score high (no false zero from Pearson)', () => {
+    const flat = makePattern({
+      pitchContourNorm: new Array(180).fill(0),
+      pitchSlope: new Array(180).fill(0),
+      energyContourNorm: new Array(180).fill(0),
+    });
+
+    const result = compareSoundStyle(flat, flat);
+    expect(result.score).toBeGreaterThan(75);
+    expect(result.breakdown.intonation).toBeGreaterThan(70);
+  });
 });
 
 describe('Sound V2 - Cross-language style', () => {
