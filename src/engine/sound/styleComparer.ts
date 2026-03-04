@@ -115,12 +115,22 @@ function computeEnergy(ref: SoundPatternV2, usr: SoundPatternV2): number {
 }
 
 function computeRhythmPause(ref: SoundPatternV2, usr: SoundPatternV2): number {
-  // Stricter ratio comparison using quadratic penalty
-  const speechRateSim = strictRatioSimilarity(ref.speechRate, usr.speechRate);
-  const regularitySim = Math.max(0, 1 - Math.abs(ref.regularity - usr.regularity) * 2);
-  const ioiSim = ref.avgIOI > 0 && usr.avgIOI > 0
+  // Unknown rhythm cues should not boost score; use conservative neutral defaults.
+  const speechRateKnown = ref.speechRate > 0.2 && usr.speechRate > 0.2;
+  const speechRateSim = speechRateKnown
+    ? strictRatioSimilarity(ref.speechRate, usr.speechRate)
+    : 0.45;
+
+  const regularityKnown = ref.regularity > 0.05 || usr.regularity > 0.05;
+  const regularitySim = regularityKnown
+    ? Math.max(0, 1 - Math.abs(ref.regularity - usr.regularity) * 2)
+    : 0.45;
+
+  const ioiKnown = ref.avgIOI > 0 && usr.avgIOI > 0;
+  const ioiSim = ioiKnown
     ? strictRatioSimilarity(ref.avgIOI, usr.avgIOI)
-    : 0.3; // Unknown = low, not neutral
+    : 0.45;
+
   const pauseSim = comparePauses(ref, usr);
   return speechRateSim * 0.3 + regularitySim * 0.2 + ioiSim * 0.25 + pauseSim * 0.25;
 }
