@@ -83,21 +83,93 @@ export const eyesModule: MSEModule<EyesFrame, EyesPattern> = {
       isDefault: true,
       enabled: true,
       compare: (ref: EyesPattern, learner: EyesPattern) => {
-        const zoneScore = Math.random() * 30 + 65;
-        const sequenceScore = Math.random() * 30 + 55;
-        const focusScore = Math.random() * 30 + 70;
-        const stabilityScore = Math.random() * 30 + 60;
-        const engagementScore = Math.random() * 30 + 68;
+        // Zone match: compare zone dwell time distributions
+        const zoneScore = compareZoneDwell(ref.zoneDwellTimes, learner.zoneDwellTimes);
+
+        // Sequence: compare zone transition sequences
+        const sequenceScore = compareZoneSequences(ref.zoneSequence, learner.zoneSequence);
+
+        // Focus: compare fixation duration
+        const focusScore = ref.avgFixationDuration > 0
+          ? Math.max(0, 100 - Math.abs(ref.avgFixationDuration - learner.avgFixationDuration) / ref.avgFixationDuration * 100)
+          : learner.avgFixationDuration === 0 ? 100 : 50;
+
+        // Stability: compare blink rates
+        const stabilityScore = ref.blinkRate > 0
+          ? Math.max(0, 100 - Math.abs(ref.blinkRate - learner.blinkRate) / ref.blinkRate * 80)
+          : learner.blinkRate === 0 ? 100 : 60;
+
+        // Engagement: primary zone match
+        const engagementScore = ref.primaryZone === learner.primaryZone ? 100 : 40;
+
         const overall = (zoneScore + sequenceScore + focusScore + stabilityScore + engagementScore) / 5;
+
+        const feedback: string[] = [];
+        if (zoneScore < 60) feedback.push('Gaze distribution differs from reference');
+        if (sequenceScore < 60) feedback.push('Eye movement pattern is different');
+        if (engagementScore < 60) feedback.push(`Try focusing more on the "${ref.primaryZone}" zone`);
+        if (stabilityScore < 60) feedback.push('Blink rate differs — try to stay relaxed');
+        if (overall >= 80) feedback.push('Excellent eye contact!');
+
         return {
           score: Math.round(overall),
-          breakdown: { zone_match: zoneScore, sequence: sequenceScore, focus: focusScore, stability: stabilityScore, engagement: engagementScore },
-          feedback: overall < 70 ? ['Try maintaining center gaze longer', 'Reduce rapid eye movements'] : ['Excellent eye contact!'],
+          breakdown: {
+            zone_match: Math.round(zoneScore),
+            sequence: Math.round(sequenceScore),
+            focus: Math.round(focusScore),
+            stability: Math.round(stabilityScore),
+            engagement: Math.round(engagementScore),
+          },
+          feedback,
         };
       },
     },
   ],
 };
+
+function compareZoneDwell(ref: Record<string, number>, learner: Record<string, number>): number {
+  const allZones = new Set([...Object.keys(ref), ...Object.keys(learner)]);
+  if (allZones.size === 0) return 100;
+
+  const refTotal = Object.values(ref).reduce((a, b) => a + b, 0) || 1;
+  const learnerTotal = Object.values(learner).reduce((a, b) => a + b, 0) || 1;
+
+  const refVec: number[] = [];
+  const learnerVec: number[] = [];
+  allZones.forEach(zone => {
+    refVec.push((ref[zone] || 0) / refTotal);
+    learnerVec.push((learner[zone] || 0) / learnerTotal);
+  });
+
+  return cosineSimilarity(refVec, learnerVec) * 100;
+}
+
+function compareZoneSequences(a: string[], b: string[]): number {
+  if (a.length === 0 && b.length === 0) return 100;
+  if (a.length === 0 || b.length === 0) return 30;
+
+  // LCS-based similarity
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return (dp[m][n] / Math.max(m, n)) * 100;
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0, magA = 0, magB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    magA += a[i] * a[i];
+    magB += b[i] * b[i];
+  }
+  if (magA === 0 || magB === 0) return 0;
+  const sim = dot / (Math.sqrt(magA) * Math.sqrt(magB));
+  return Math.max(0, Math.min(1, (sim + 1) / 2));
+}
 
 function classifyZone(x: number, y: number): string {
   const col = x < 0.33 ? 'left' : x > 0.66 ? 'right' : 'center';

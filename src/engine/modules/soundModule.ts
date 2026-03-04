@@ -68,21 +68,84 @@ export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
       isDefault: true,
       enabled: true,
       compare: (ref: SoundPattern, learner: SoundPattern) => {
-        const pitchScore = Math.random() * 30 + 55;
-        const volumeScore = Math.random() * 30 + 60;
-        const rhythmScore = Math.random() * 30 + 50;
-        const clarityScore = Math.random() * 30 + 65;
-        const tempoScore = Math.random() * 30 + 55;
+        const pitchScore = compareContours(ref.pitchContour, learner.pitchContour);
+        const volumeScore = compareContours(ref.volumeContour, learner.volumeContour);
+        const rhythmScore = compareContours(ref.rhythmPattern, learner.rhythmPattern);
+
+        // Clarity: compare avg pitch similarity
+        const clarityScore = ref.avgPitch > 0
+          ? Math.max(0, 100 - Math.abs(ref.avgPitch - learner.avgPitch) / ref.avgPitch * 100)
+          : learner.avgPitch === 0 ? 100 : 50;
+
+        // Tempo: compare syllable rate
+        const tempoScore = ref.syllableRate > 0
+          ? Math.max(0, 100 - Math.abs(ref.syllableRate - learner.syllableRate) / ref.syllableRate * 100)
+          : learner.syllableRate === 0 ? 100 : 50;
+
         const overall = (pitchScore + volumeScore + rhythmScore + clarityScore + tempoScore) / 5;
+
+        const feedback: string[] = [];
+        if (pitchScore < 60) feedback.push('Pitch contour differs — try matching the intonation pattern');
+        if (volumeScore < 60) feedback.push('Volume dynamics need adjustment');
+        if (rhythmScore < 60) feedback.push('Rhythm pattern is off — focus on timing');
+        if (tempoScore < 60) feedback.push('Speaking rate differs from reference');
+        if (overall >= 80) feedback.push('Great voice control!');
+
         return {
           score: Math.round(overall),
-          breakdown: { pitch: pitchScore, volume: volumeScore, rhythm: rhythmScore, clarity: clarityScore, tempo: tempoScore },
-          feedback: overall < 70 ? ['Pitch drops too fast', 'Try matching the rhythm'] : ['Great voice control!'],
+          breakdown: {
+            pitch: Math.round(pitchScore),
+            volume: Math.round(volumeScore),
+            rhythm: Math.round(rhythmScore),
+            clarity: Math.round(clarityScore),
+            tempo: Math.round(tempoScore),
+          },
+          feedback,
         };
       },
     },
   ],
 };
+
+// --- Real comparison helpers ---
+
+function compareContours(a: number[], b: number[]): number {
+  if (a.length === 0 && b.length === 0) return 100;
+  if (a.length === 0 || b.length === 0) return 30;
+
+  // Resample both to same length, then cosine similarity
+  const len = 64;
+  const ra = resample(a, len);
+  const rb = resample(b, len);
+  return cosineSimilarity(ra, rb) * 100;
+}
+
+function resample(arr: number[], targetLen: number): number[] {
+  if (arr.length === 0) return new Array(targetLen).fill(0);
+  if (arr.length === targetLen) return arr;
+  const result: number[] = [];
+  for (let i = 0; i < targetLen; i++) {
+    const pos = (i / (targetLen - 1)) * (arr.length - 1);
+    const lo = Math.floor(pos);
+    const hi = Math.min(lo + 1, arr.length - 1);
+    const frac = pos - lo;
+    result.push(arr[lo] * (1 - frac) + arr[hi] * frac);
+  }
+  return result;
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0, magA = 0, magB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    magA += a[i] * a[i];
+    magB += b[i] * b[i];
+  }
+  if (magA === 0 || magB === 0) return 0;
+  const sim = dot / (Math.sqrt(magA) * Math.sqrt(magB));
+  // Cosine sim ranges -1 to 1, normalize to 0-1
+  return Math.max(0, Math.min(1, (sim + 1) / 2));
+}
 
 function detectRhythm(volumes: number[]): number[] {
   const threshold = volumes.reduce((a, b) => a + b, 0) / (volumes.length || 1) * 0.6;

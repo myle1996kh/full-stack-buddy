@@ -308,17 +308,23 @@ export default function ModuleTestLab() {
     score: r.score,
   }));
 
+  const referenceName = referenceSource === 'lesson'
+    ? `📌 ${selectedLesson?.title || 'Lesson'}`
+    : `📌 ${referenceFile?.name || 'Reference'}`;
+
   const radarData = results.length > 0
     ? Object.keys(results[0].breakdown).map(key => {
         const entry: Record<string, any> = { metric: key };
+        entry['Reference'] = 100; // Captain's reference is always the baseline (100%)
         results.forEach((r, i) => {
-          entry[`File ${i + 1}`] = r.breakdown[key] || 0;
+          const label = r.fileName.length > 20 ? r.fileName.slice(0, 17) + '...' : r.fileName;
+          entry[label] = r.breakdown[key] || 0;
         });
         return entry;
       })
     : [];
 
-  const radarColors = ['hsl(var(--mse-motion))', 'hsl(var(--mse-sound))', 'hsl(var(--mse-eyes))', 'hsl(var(--primary))'];
+  const radarColors = ['hsl(var(--primary))', 'hsl(var(--mse-motion))', 'hsl(var(--mse-sound))', 'hsl(var(--mse-eyes))', 'hsl(var(--accent-foreground))'];
 
   return (
     <div className="space-y-4">
@@ -651,16 +657,29 @@ export default function ModuleTestLab() {
                       <RadarChart data={radarData}>
                         <PolarGrid stroke="hsl(var(--border))" />
                         <PolarAngleAxis dataKey="metric" tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }} />
-                        {results.map((_, i) => (
-                          <Radar
-                            key={i}
-                            name={`File ${i + 1}`}
-                            dataKey={`File ${i + 1}`}
-                            stroke={radarColors[i % radarColors.length]}
-                            fill={radarColors[i % radarColors.length]}
-                            fillOpacity={0.15}
-                          />
-                        ))}
+                        <Radar
+                          key="reference"
+                          name={referenceName}
+                          dataKey="Reference"
+                          stroke="hsl(var(--primary))"
+                          fill="hsl(var(--primary))"
+                          fillOpacity={0.08}
+                          strokeDasharray="4 3"
+                          strokeWidth={2}
+                        />
+                        {results.map((r, i) => {
+                          const label = r.fileName.length > 20 ? r.fileName.slice(0, 17) + '...' : r.fileName;
+                          return (
+                            <Radar
+                              key={i}
+                              name={label}
+                              dataKey={label}
+                              stroke={radarColors[(i + 1) % radarColors.length]}
+                              fill={radarColors[(i + 1) % radarColors.length]}
+                              fillOpacity={0.15}
+                            />
+                          );
+                        })}
                         <Legend wrapperStyle={{ fontSize: 10 }} />
                       </RadarChart>
                     </ResponsiveContainer>
