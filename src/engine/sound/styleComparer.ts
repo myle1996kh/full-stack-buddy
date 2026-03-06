@@ -1,7 +1,12 @@
 /**
- * Style comparer V2: cross-language prosodic similarity using DTW + Pearson correlation.
+ * Style comparer V2.1: cross-language prosodic similarity using DTW + Pearson correlation.
  * Fully deterministic — no randomness.
  * Supports dynamic metric weights and toggling.
+ *
+ * V2.1 changes:
+ * - Rebalanced weights: intonation 30% (was 10%), melody is the style
+ * - Uses voiced-only interpolated contours for intonation (fixes zero-fill bug)
+ * - Spectral contour comparison (centroid, rolloff) for real timbre matching
  *
  * Key discrimination mechanisms:
  * - DTW with steeper penalty curve (exp coefficient 1.5)
@@ -13,12 +18,12 @@
 import type { SoundPatternV2, SoundCompareResultV2 } from './types';
 import { evaluateQuality } from './qualityGate';
 
-// Default weights
+// Default weights — intonation is co-dominant (melody IS the style)
 const DEFAULT_WEIGHTS = {
-  intonation: 0.10,
-  rhythmPause: 0.30,
-  energy: 0.30,
-  timbre: 0.30,
+  intonation: 0.30,
+  rhythmPause: 0.25,
+  energy: 0.20,
+  timbre: 0.25,
 };
 
 export interface MetricWeightInput {
@@ -42,10 +47,15 @@ function normalizeWeights(metrics: MetricWeights): Record<string, number> {
 /**
  * Compare two sound patterns for cross-language style similarity.
  */
+export interface CompareOptions {
+  applyQualityPenalty?: boolean;
+}
+
 export function compareSoundStyle(
   ref: SoundPatternV2,
   usr: SoundPatternV2,
   customWeights?: MetricWeights,
+  options?: CompareOptions,
 ): SoundCompareResultV2 {
   // Compute detailed sub-scores with debug info
   const intonationDebug = computeIntonationDebug(ref, usr);
@@ -80,14 +90,12 @@ export function compareSoundStyle(
     base += rawScores[key as keyof typeof rawScores] * normWeights[key];
   }
 
-  // Discrimination calibration: low core prosody dimensions should cap the final score.
-  const coreKeys = enabledKeys.filter((k) => k === 'intonation' || k === 'rhythmPause' || k === 'energy');
-  const coreMin = coreKeys.length > 0
-    ? Math.min(...coreKeys.map((k) => rawScores[k as keyof typeof rawScores]))
-    : 1;
-  const discriminationFactor = 0.55 + 0.45 * coreMin;
+  const applyQualityPenalty = options?.applyQualityPenalty ?? false;
 
-  const score = Math.round(Math.max(0, Math.min(100, base * discriminationFactor * 100)));
+  // Raw score from weighted similarity only
+  const rawScore = Math.max(0, Math.min(100, base * 100));
+  const finalScore = applyQualityPenalty ? rawScore * qualityFactor : rawScore;
+  const score = Math.round(Math.max(0, Math.min(100, finalScore)));
 
   const breakdown: Record<string, number> = {};
   for (const key of enabledKeys) {
@@ -104,10 +112,11 @@ export function compareSoundStyle(
     debug: {
       // Weights
       ...Object.fromEntries(enabledKeys.map(k => [`w_${k}`, round3(normWeights[k])])),
-      // Discrimination
+      // Final aggregation
       weightedAvg: round3(base),
-      coreMin: round3(coreMin),
-      discriminationFactor: round3(discriminationFactor),
+      rawScore: round3(rawScore),
+      finalScore: round3(finalScore),
+      applyQualityPenalty: applyQualityPenalty ? 1 : 0,
       qualityFactor: round3(qualityFactor),
       // Intonation detail
       pitch_dtw: round3(intonationDebug.pitchDtw),
@@ -133,6 +142,8 @@ export function compareSoundStyle(
       voicedSim: round3(timbreDebug.voicedSim),
       pitchRangeSim: round3(timbreDebug.pitchRangeSim),
       energyDynSim: round3(timbreDebug.energyDynSim),
+      centroidSim: round3(timbreDebug.centroidSim),
+      rolloffSim: round3(timbreDebug.rolloffSim),
     },
   };
 }
@@ -156,9 +167,25 @@ function contourSimilarityDebug(a: number[], b: number[]): ContourDebug {
   return { dtw, pearson, contourSim };
 }
 
+/** Check if a contour has meaningful content (not all zeros) */
+function hasContent(contour: number[] | undefined): contour is number[] {
+  if (!contour || contour.length === 0) return false;
+  return contour.some(v => Math.abs(v) > 1e-6);
+}
+
+/**
+ * Intonation: uses voiced-only contours (no zero-fill pollution).
+ * Falls back to legacy contours if voiced contours are empty/flat.
+ */
 function computeIntonationDebug(ref: SoundPatternV2, usr: SoundPatternV2) {
-  const pitch = contourSimilarityDebug(ref.pitchContourNorm, usr.pitchContourNorm);
-  const slope = contourSimilarityDebug(ref.pitchSlope, usr.pitchSlope);
+  // Prefer voiced-only contours; fall back to legacy if unavailable
+  const refPitch = hasContent(ref.pitchContourVoiced) ? ref.pitchContourVoiced : ref.pitchContourNorm;
+  const usrPitch = hasContent(usr.pitchContourVoiced) ? usr.pitchContourVoiced : usr.pitchContourNorm;
+  const refSlope = hasContent(ref.pitchSlopeVoiced) ? ref.pitchSlopeVoiced : ref.pitchSlope;
+  const usrSlope = hasContent(usr.pitchSlopeVoiced) ? usr.pitchSlopeVoiced : usr.pitchSlope;
+
+  const pitch = contourSimilarityDebug(refPitch, usrPitch);
+  const slope = contourSimilarityDebug(refSlope, usrSlope);
   const score = pitch.contourSim * 0.6 + slope.contourSim * 0.4;
   return {
     score,
@@ -193,11 +220,15 @@ function computeRhythmPauseDebug(ref: SoundPatternV2, usr: SoundPatternV2) {
   return { score, speechRateSim, regularitySim, ioiSim, pauseSim };
 }
 
+/**
+ * Timbre: includes spectral contour comparison (centroid, rolloff) for real voice color matching.
+ * voicedSim 20%, pitchRange 20%, energyDyn 20%, centroid 20%, rolloff 20%
+ */
 function computeTimbreDebug(ref: SoundPatternV2, usr: SoundPatternV2) {
   const voicedSim = Math.max(0, 1 - Math.abs(ref.voicedRatio - usr.voicedRatio) * 3);
 
-  const refPitchVar = variance(ref.pitchContourNorm);
-  const usrPitchVar = variance(usr.pitchContourNorm);
+  const refPitchVar = variance(hasContent(ref.pitchContourVoiced) ? ref.pitchContourVoiced : ref.pitchContourNorm);
+  const usrPitchVar = variance(hasContent(usr.pitchContourVoiced) ? usr.pitchContourVoiced : usr.pitchContourNorm);
   const pitchRangeSim = strictRatioSimilarity(
     Math.sqrt(refPitchVar) + 0.01,
     Math.sqrt(usrPitchVar) + 0.01,
@@ -210,14 +241,23 @@ function computeTimbreDebug(ref: SoundPatternV2, usr: SoundPatternV2) {
     Math.sqrt(usrEnergyVar) + 0.01,
   );
 
-  const score = voicedSim * 0.3 + pitchRangeSim * 0.35 + energyDynSim * 0.35;
-  return { score, voicedSim, pitchRangeSim, energyDynSim };
-}
+  // Spectral contour comparison (voice color/brightness/warmth)
+  const centroidDebug = contourSimilarityDebug(
+    ref.spectralCentroidContour ?? [],
+    usr.spectralCentroidContour ?? [],
+  );
+  const centroidSim = centroidDebug.contourSim;
 
-// ── Contour Similarity (legacy wrapper) ──
+  const rolloffDebug = contourSimilarityDebug(
+    ref.spectralRolloffContour ?? [],
+    usr.spectralRolloffContour ?? [],
+  );
+  const rolloffSim = rolloffDebug.contourSim;
 
-function contourSimilarity(a: number[], b: number[]): number {
-  return contourSimilarityDebug(a, b).contourSim;
+  const score = voicedSim * 0.2 + pitchRangeSim * 0.2 + energyDynSim * 0.2
+    + centroidSim * 0.2 + rolloffSim * 0.2;
+
+  return { score, voicedSim, pitchRangeSim, energyDynSim, centroidSim, rolloffSim };
 }
 
 // ── DTW ──
@@ -250,7 +290,7 @@ function dtwToSimilarity(a: number[], b: number[]): number {
   const pathLen = Math.max(n, m);
   const avgDist = Math.sqrt(dtwDist / pathLen);
 
-  // Steeper decay: coefficient 1.5 (was 0.7)
+  // Steeper decay: coefficient 1.5
   // dist=0 → 1.0, dist=0.5 → 0.47, dist=1.0 → 0.22, dist=2.0 → 0.05
   const similarity = Math.exp(-avgDist * 1.5);
   return Math.max(0, Math.min(1, similarity));
@@ -312,7 +352,6 @@ function comparePauses(ref: SoundPatternV2, usr: SoundPatternV2): number {
     }
     if (bestIdx >= 0 && bestDist <= tolerance) {
       matched++;
-      // Also compare pause duration
       durSim += strictRatioSimilarity(rp.dur, usrNorm[bestIdx].dur);
       used.add(bestIdx);
     }
@@ -384,8 +423,8 @@ function generateFeedback(
     else if (scores.energy < 0.5) feedback.push('Try matching the loud/soft dynamics more closely');
   }
   if (enabledKeys.includes('timbre')) {
-    if (scores.timbre < 0.3) feedback.push('Vocal character differs significantly — try matching the expressiveness level');
-    else if (scores.timbre < 0.5) feedback.push('Vocal dynamics partially match');
+    if (scores.timbre < 0.3) feedback.push('Vocal character differs significantly — try matching the voice color and expressiveness');
+    else if (scores.timbre < 0.5) feedback.push('Vocal dynamics partially match — try matching brightness and warmth');
   }
 
   const avg = enabledKeys.reduce((s, k) => s + scores[k], 0) / (enabledKeys.length || 1);

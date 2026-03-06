@@ -12,19 +12,158 @@ interface ProsodyDebugPanelProps {
   }>;
 }
 
+// Sections auto-hide when keys are not present — fingerprint and DTW sections coexist
 const SECTIONS: { title: string; keys: string[]; labels: Record<string, string> }[] = [
+  // ── Shared ──
   {
     title: '🎯 Final Score',
-    keys: ['weightedAvg', 'coreMin', 'discriminationFactor', 'qualityFactor'],
+    keys: ['weightedAvg', 'rawWeightedAvg', 'rawScore', 'finalScore', 'applyQualityPenalty', 'coreMin', 'discriminationFactor', 'discFactor', 'qualityFactor'],
     labels: {
       weightedAvg: 'Weighted Avg (raw)',
-      coreMin: 'Core Min (lowest of inton/rhythm/energy)',
+      rawWeightedAvg: 'Weighted Avg (raw)',
+      rawScore: 'Raw Score',
+      finalScore: 'Final Score',
+      applyQualityPenalty: 'Apply Quality Penalty (1=ON)',
+      coreMin: 'Core Min',
       discriminationFactor: 'Discrimination Factor',
+      discFactor: 'Discrimination Factor',
       qualityFactor: 'Quality Factor',
     },
   },
+  // ── Style Fingerprint sections ──
   {
-    title: '🎵 Intonation',
+    title: '🎵 Melody Character',
+    keys: ['pitchRangeSim', 'pitchVarSim', 'pitchDirSim', 'ref_pitchRange', 'usr_pitchRange', 'ref_pitchVar', 'usr_pitchVar'],
+    labels: {
+      pitchRangeSim: 'Pitch Range Sim (expressiveness)',
+      pitchVarSim: 'Pitch Variability Sim',
+      pitchDirSim: 'Pitch Direction Sim (up/down bias)',
+      ref_pitchRange: 'Ref Pitch Range (semitones)',
+      usr_pitchRange: 'Usr Pitch Range (semitones)',
+      ref_pitchVar: 'Ref Pitch Variability',
+      usr_pitchVar: 'Usr Pitch Variability',
+    },
+  },
+  {
+    title: '💥 Energy Character',
+    keys: ['energyRangeSim', 'energyVarSim', 'energyPeakSim', 'ref_energyRange', 'usr_energyRange'],
+    labels: {
+      energyRangeSim: 'Energy Range Sim (punch)',
+      energyVarSim: 'Energy Variability Sim',
+      energyPeakSim: 'Energy Peak Ratio Sim',
+      ref_energyRange: 'Ref Energy Range',
+      usr_energyRange: 'Usr Energy Range',
+    },
+  },
+  {
+    title: '🥁 Rhythm Character',
+    keys: ['speedSim', 'regularitySim', 'pauseRateSim', 'pauseDurSim', 'ref_speechRate', 'usr_speechRate', 'ref_pauseRate', 'usr_pauseRate'],
+    labels: {
+      speedSim: 'Speed Sim (pace)',
+      regularitySim: 'Regularity Sim (groove)',
+      pauseRateSim: 'Pause Rate Sim',
+      pauseDurSim: 'Pause Duration Sim',
+      ref_speechRate: 'Ref Speech Rate (syl/s)',
+      usr_speechRate: 'Usr Speech Rate (syl/s)',
+      ref_pauseRate: 'Ref Pause Rate (/s)',
+      usr_pauseRate: 'Usr Pause Rate (/s)',
+    },
+  },
+  {
+    title: '🎙️ Voice Character',
+    keys: ['brightSim', 'warmSim', 'voicedSim'],
+    labels: {
+      brightSim: 'Brightness Sim (centroid)',
+      warmSim: 'Warmth Sim (rolloff)',
+      voicedSim: 'Voiced Ratio Sim',
+    },
+  },
+  {
+    title: '⚖️ Weights (Fingerprint)',
+    keys: ['w_melody', 'w_energy', 'w_rhythm', 'w_voice'],
+    labels: {
+      w_melody: 'Weight: Melody',
+      w_energy: 'Weight: Energy',
+      w_rhythm: 'Weight: Rhythm',
+      w_voice: 'Weight: Voice',
+    },
+  },
+  // ── Wav2Vec Hybrid sections ──
+  {
+    title: '🧠 Wav2Vec Hybrid',
+    keys: ['embedSim', 'deliverySim', 'fingerSim', 'w_embedding', 'w_delivery', 'w_fingerprint', 'refEmbeddingSource', 'usrEmbeddingSource'],
+    labels: {
+      embedSim: 'Embedding Similarity',
+      deliverySim: 'Delivery Similarity',
+      fingerSim: 'Fingerprint Similarity',
+      w_embedding: 'Weight: Embedding',
+      w_delivery: 'Weight: Delivery',
+      w_fingerprint: 'Weight: Fingerprint',
+      refEmbeddingSource: 'Ref Uses Real Wav2Vec (1=yes)',
+      usrEmbeddingSource: 'Usr Uses Real Wav2Vec (1=yes)',
+    },
+  },
+  // ── Delivery Pattern sections ──
+  {
+    title: '📏 Elongation Pattern',
+    keys: ['elongSim', 'ref_durationCV', 'usr_durationCV', 'ref_elongatedRatio', 'usr_elongatedRatio', 'ref_maxMedianRatio', 'usr_maxMedianRatio', 'durationProfileCorr'],
+    labels: {
+      elongSim: 'Elongation Similarity',
+      ref_durationCV: 'Ref Duration CV',
+      usr_durationCV: 'Usr Duration CV',
+      ref_elongatedRatio: 'Ref Elongated Ratio',
+      usr_elongatedRatio: 'Usr Elongated Ratio',
+      ref_maxMedianRatio: 'Ref Max/Median Ratio',
+      usr_maxMedianRatio: 'Usr Max/Median Ratio',
+      durationProfileCorr: 'Duration Profile Corr.',
+    },
+  },
+  {
+    title: '💪 Emphasis Pattern',
+    keys: ['emphSim', 'ref_energyCV', 'usr_energyCV', 'ref_emphasisRatio', 'usr_emphasisRatio', 'energyProfileCorr'],
+    labels: {
+      emphSim: 'Emphasis Similarity',
+      ref_energyCV: 'Ref Energy CV',
+      usr_energyCV: 'Usr Energy CV',
+      ref_emphasisRatio: 'Ref Emphasis Ratio',
+      usr_emphasisRatio: 'Usr Emphasis Ratio',
+      energyProfileCorr: 'Energy Profile Corr.',
+    },
+  },
+  {
+    title: '🎭 Expressiveness Pattern',
+    keys: ['exprSim', 'ref_expressiveRatio', 'usr_expressiveRatio', 'ref_avgPitchRange', 'usr_avgPitchRange', 'pitchRangeProfileCorr'],
+    labels: {
+      exprSim: 'Expressiveness Similarity',
+      ref_expressiveRatio: 'Ref Expressive Ratio',
+      usr_expressiveRatio: 'Usr Expressive Ratio',
+      ref_avgPitchRange: 'Ref Avg Pitch Range (st)',
+      usr_avgPitchRange: 'Usr Avg Pitch Range (st)',
+      pitchRangeProfileCorr: 'Pitch Range Profile Corr.',
+    },
+  },
+  {
+    title: '🏃 Rhythm (Delivery)',
+    keys: ['rhythmSim', 'ref_segments', 'usr_segments'],
+    labels: {
+      rhythmSim: 'Rhythm Similarity',
+      ref_segments: 'Ref Segment Count',
+      usr_segments: 'Usr Segment Count',
+    },
+  },
+  {
+    title: '⚖️ Weights (Delivery)',
+    keys: ['w_elongation', 'w_emphasis', 'w_expressiveness', 'w_rhythm'],
+    labels: {
+      w_elongation: 'Weight: Elongation',
+      w_emphasis: 'Weight: Emphasis',
+      w_expressiveness: 'Weight: Expressiveness',
+      w_rhythm: 'Weight: Rhythm',
+    },
+  },
+  // ── DTW (Legacy) sections ──
+  {
+    title: '🎵 Intonation (DTW)',
     keys: ['pitch_dtw', 'pitch_pearson', 'pitch_contourSim', 'slope_dtw', 'slope_pearson', 'slope_contourSim'],
     labels: {
       pitch_dtw: 'Pitch DTW Similarity',
@@ -36,7 +175,7 @@ const SECTIONS: { title: string; keys: string[]; labels: Record<string, string> 
     },
   },
   {
-    title: '⚡ Energy',
+    title: '⚡ Energy (DTW)',
     keys: ['energy_dtw', 'energy_pearson', 'energy_contourSim'],
     labels: {
       energy_dtw: 'Energy DTW Similarity',
@@ -45,30 +184,27 @@ const SECTIONS: { title: string; keys: string[]; labels: Record<string, string> 
     },
   },
   {
-    title: '🥁 Rhythm & Pause',
-    keys: ['speechRateSim', 'regularitySim', 'ioiSim', 'pauseSim', 'ref_speechRate', 'usr_speechRate', 'ref_avgIOI', 'usr_avgIOI'],
+    title: '🥁 Rhythm & Pause (DTW)',
+    keys: ['ioiSim', 'pauseSim', 'ref_avgIOI', 'usr_avgIOI'],
     labels: {
-      speechRateSim: 'Speech Rate Sim (quadratic)',
-      regularitySim: 'Regularity Sim',
       ioiSim: 'IOI Sim (quadratic)',
       pauseSim: 'Pause Alignment Sim',
-      ref_speechRate: 'Ref Speech Rate (syl/s)',
-      usr_speechRate: 'Usr Speech Rate (syl/s)',
       ref_avgIOI: 'Ref Avg IOI (ms)',
       usr_avgIOI: 'Usr Avg IOI (ms)',
     },
   },
   {
-    title: '🎙️ Timbre',
-    keys: ['voicedSim', 'pitchRangeSim', 'energyDynSim'],
+    title: '🎙️ Timbre (DTW)',
+    keys: ['pitchRangeSim', 'energyDynSim', 'centroidSim', 'rolloffSim'],
     labels: {
-      voicedSim: 'Voiced Ratio Sim',
       pitchRangeSim: 'Pitch Range Sim',
       energyDynSim: 'Energy Dynamics Sim',
+      centroidSim: 'Spectral Centroid Sim',
+      rolloffSim: 'Spectral Rolloff Sim',
     },
   },
   {
-    title: '⚖️ Weights',
+    title: '⚖️ Weights (DTW)',
     keys: ['w_intonation', 'w_rhythmPause', 'w_energy', 'w_timbre'],
     labels: {
       w_intonation: 'Weight: Intonation',
@@ -88,7 +224,16 @@ function colorForValue(val: number, isRaw = false): string {
   return 'text-red-400';
 }
 
-const RAW_KEYS = new Set(['ref_speechRate', 'usr_speechRate', 'ref_avgIOI', 'usr_avgIOI', 'weightedAvg']);
+const RAW_KEYS = new Set([
+  'ref_speechRate', 'usr_speechRate', 'ref_avgIOI', 'usr_avgIOI', 'weightedAvg', 'rawWeightedAvg', 'rawScore', 'finalScore', 'applyQualityPenalty',
+  'ref_pitchRange', 'usr_pitchRange', 'ref_pitchVar', 'usr_pitchVar',
+  'ref_energyRange', 'usr_energyRange', 'ref_pauseRate', 'usr_pauseRate',
+  'refEmbeddingSource', 'usrEmbeddingSource',
+  // Delivery raw keys
+  'ref_segments', 'usr_segments', 'ref_durationCV', 'usr_durationCV',
+  'ref_maxMedianRatio', 'usr_maxMedianRatio', 'ref_energyCV', 'usr_energyCV',
+  'ref_avgPitchRange', 'usr_avgPitchRange', 'ref_regularity', 'usr_regularity',
+]);
 
 export default function ProsodyDebugPanel({ results }: ProsodyDebugPanelProps) {
   const [openIdx, setOpenIdx] = useState<number | null>(0);

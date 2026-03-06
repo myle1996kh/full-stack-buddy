@@ -10,6 +10,18 @@ import {
 } from '@/engine/sound/index';
 import { compareSoundStyle } from '@/engine/sound/styleComparer';
 import type { MetricWeights } from '@/engine/sound/styleComparer';
+import {
+  compareStyleFingerprints,
+  DEFAULT_FINGERPRINT_PARAMS,
+} from '@/engine/sound/styleFingerprintComparer';
+import {
+  compareWav2VecStyle,
+  DEFAULT_WAV2VEC_PARAMS,
+} from '@/engine/sound/styleWav2vecComparer';
+import { compareDeliveryStyle, setDeliveryParams } from '@/engine/sound/styleDeliveryComparer';
+import type { DeliveryParams } from '@/engine/sound/styleDeliveryComparer';
+import type { FingerprintParams } from '@/engine/sound/styleFingerprintComparer';
+import type { Wav2VecParams } from '@/engine/sound/styleWav2vecComparer';
 import type { SoundPatternV2 } from '@/engine/sound/types';
 
 // Global dynamic weights — set from UI before running compare
@@ -21,6 +33,48 @@ export function setSoundMetricWeights(weights: MetricWeights | undefined) {
 
 export function getSoundMetricWeights(): MetricWeights | undefined {
   return _dynamicWeights;
+}
+
+// Delivery comparer params
+let _deliveryParams: DeliveryParams | undefined = undefined;
+
+export function setSoundDeliveryParams(params: DeliveryParams | undefined) {
+  _deliveryParams = params;
+  if (params) setDeliveryParams(params);
+}
+
+export function getSoundDeliveryParams(): DeliveryParams | undefined {
+  return _deliveryParams;
+}
+
+let _fingerprintParams: FingerprintParams = { ...DEFAULT_FINGERPRINT_PARAMS };
+
+export function setSoundFingerprintParams(params: FingerprintParams | undefined) {
+  _fingerprintParams = params ? { ...params } : { ...DEFAULT_FINGERPRINT_PARAMS };
+}
+
+export function getSoundFingerprintParams(): FingerprintParams {
+  return _fingerprintParams;
+}
+
+let _wav2vecParams: Wav2VecParams = { ...DEFAULT_WAV2VEC_PARAMS };
+
+export function setSoundWav2VecParams(params: Wav2VecParams | undefined) {
+  _wav2vecParams = params ? { ...params } : { ...DEFAULT_WAV2VEC_PARAMS };
+}
+
+export function getSoundWav2VecParams(): Wav2VecParams {
+  return _wav2vecParams;
+}
+
+let _applyQualityPenalty = true;
+
+export function setSoundApplyQualityPenalty(enabled: boolean) {
+  _applyQualityPenalty = enabled;
+}
+
+export function getSoundApplyQualityPenalty(): boolean {
+  return _applyQualityPenalty;
 }
 
 /**
@@ -63,6 +117,21 @@ function bridgeToV2Pattern(frames: SoundFrame[]): SoundPattern & { _v2?: SoundPa
     syllableRate: estimateSyllableRate(volumeContour),
     _v2: v2Pattern,
   };
+}
+
+function isSoundPatternV2(pattern: any): pattern is SoundPatternV2 {
+  return !!pattern
+    && typeof pattern.duration === 'number'
+    && Array.isArray(pattern.pitchContourNorm)
+    && Array.isArray(pattern.energyContourNorm)
+    && Array.isArray(pattern.onsetTimes);
+}
+
+function coerceToV2(pattern: SoundPattern | (SoundPattern & { _v2?: SoundPatternV2 }) | SoundPatternV2): SoundPatternV2 {
+  const wrapped = (pattern as any)?._v2 as SoundPatternV2 | undefined;
+  if (wrapped) return wrapped;
+  if (isSoundPatternV2(pattern)) return pattern;
+  return buildFallbackV2(pattern as SoundPattern);
 }
 
 export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
@@ -108,30 +177,84 @@ export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
 
   comparers: [
     {
-      id: 'style-dtw',
-      name: 'Cross-Language Style DTW',
-      description: 'DTW-based prosodic style comparison (intonation, rhythm, energy, timbre)',
+      id: 'style-delivery',
+      name: 'Delivery Pattern',
+      description: 'Compare delivery style: elongation, emphasis, expressiveness — detects "kéo dài âm" patterns across languages',
       isDefault: true,
       enabled: true,
       compare: (ref: SoundPattern, learner: SoundPattern) => {
-        const refV2 = (ref as any)._v2 as SoundPatternV2 | undefined;
-        const learnerV2 = (learner as any)._v2 as SoundPatternV2 | undefined;
+        const refPattern = coerceToV2(ref as any);
+        const learnerPattern = coerceToV2(learner as any);
 
+        const result = compareDeliveryStyle(refPattern, learnerPattern, _deliveryParams, {
+          applyQualityPenalty: _applyQualityPenalty,
+        });
+        return {
+          score: result.score,
+          breakdown: result.breakdown,
+          feedback: result.feedback,
+          debug: result.debug,
+        };
+      },
+    },
+    {
+      id: 'style-fingerprint',
+      name: 'Style Fingerprint',
+      description: 'Compare speaking CHARACTER (expressiveness, energy, rhythm, voice color) — cross-language',
+      isDefault: false,
+      enabled: true,
+      compare: (ref: SoundPattern, learner: SoundPattern) => {
+        const refPattern = coerceToV2(ref as any);
+        const learnerPattern = coerceToV2(learner as any);
+
+        const result = compareStyleFingerprints(refPattern, learnerPattern, _fingerprintParams, {
+          applyQualityPenalty: _applyQualityPenalty,
+        });
+        return {
+          score: result.score,
+          breakdown: result.breakdown,
+          feedback: result.feedback,
+          debug: result.debug,
+        };
+      },
+    },
+    {
+      id: 'style-wav2vec',
+      name: 'Wav2Vec Hybrid (Experimental)',
+      description: 'Hybrid style scoring: embedding similarity + delivery + fingerprint. Uses wav2vec embedding if attached, else runtime-safe proxy embedding.',
+      isDefault: false,
+      enabled: true,
+      compare: (ref: SoundPattern, learner: SoundPattern) => {
+        const refPattern = coerceToV2(ref as any);
+        const learnerPattern = coerceToV2(learner as any);
+
+        const result = compareWav2VecStyle(refPattern, learnerPattern, _wav2vecParams, {
+          applyQualityPenalty: _applyQualityPenalty,
+          deliveryParams: _deliveryParams,
+          fingerprintParams: _fingerprintParams,
+        });
+        return {
+          score: result.score,
+          breakdown: result.breakdown,
+          feedback: result.feedback,
+          debug: result.debug,
+        };
+      },
+    },
+    {
+      id: 'style-dtw',
+      name: 'Contour DTW (Legacy)',
+      description: 'DTW-based prosodic contour comparison (intonation, rhythm, energy, timbre)',
+      isDefault: false,
+      enabled: true,
+      compare: (ref: SoundPattern, learner: SoundPattern) => {
+        const refPattern = coerceToV2(ref as any);
+        const learnerPattern = coerceToV2(learner as any);
         const weights = _dynamicWeights;
 
-        if (refV2 && learnerV2) {
-          const result = compareSoundStyle(refV2, learnerV2, weights);
-          return {
-            score: result.score,
-            breakdown: result.breakdown,
-            feedback: result.feedback,
-            debug: result.debug,
-          };
-        }
-
-        const fallbackRef = buildFallbackV2(ref);
-        const fallbackLearner = buildFallbackV2(learner);
-        const result = compareSoundStyle(fallbackRef, fallbackLearner, weights);
+        const result = compareSoundStyle(refPattern, learnerPattern, weights, {
+          applyQualityPenalty: _applyQualityPenalty,
+        });
         return {
           score: result.score,
           breakdown: result.breakdown,
@@ -174,7 +297,11 @@ function buildFallbackV2(pattern: SoundPattern): SoundPatternV2 {
     duration,
     pitchContourNorm,
     pitchSlope,
+    pitchContourVoiced: pitchContourNorm, // legacy fallback: use same as norm
+    pitchSlopeVoiced: pitchSlope,
     energyContourNorm,
+    spectralCentroidContour: new Array(CONTOUR_LENGTH).fill(0),
+    spectralRolloffContour: new Array(CONTOUR_LENGTH).fill(0),
     onsetTimes: [],
     pausePattern: [],
     speechRate: pattern.syllableRate,

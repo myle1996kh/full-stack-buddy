@@ -24,9 +24,13 @@ export interface PauseEvent {
 
 export interface SoundPatternV2 {
   duration: number;
-  pitchContourNorm: number[];   // normalized semitone contour
-  pitchSlope: number[];         // first derivative
+  pitchContourNorm: number[];   // normalized semitone contour (legacy, includes zero-fill)
+  pitchSlope: number[];         // first derivative (legacy)
+  pitchContourVoiced: number[]; // voiced-only interpolated contour (no zero-fill)
+  pitchSlopeVoiced: number[];   // first derivative of voiced contour
   energyContourNorm: number[];  // normalized log-energy contour
+  spectralCentroidContour: number[]; // z-normalized centroid contour (voice brightness)
+  spectralRolloffContour: number[];  // z-normalized rolloff contour (voice warmth)
   onsetTimes: number[];         // seconds
   pausePattern: PauseEvent[];
   speechRate: number;           // syllables/sec (estimated)
@@ -48,7 +52,7 @@ export interface SoundCompareResultV2 {
     energy: number;
     timbre: number;
   };
-  qualityFactor: number;        // 0.6..1.0
+  qualityFactor: number;        // 0.4..1.0
   feedback: string[];
   debug?: Record<string, number>;
 }

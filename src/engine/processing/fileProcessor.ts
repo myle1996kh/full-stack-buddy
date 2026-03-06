@@ -6,10 +6,9 @@
 
 import type { SoundFrame, EyesFrame, MotionFrame as ModuleMotionFrame } from '@/types/modules';
 import { MotionDetector } from '@/engine/detection/motionDetector';
-import { GazeDetector } from '@/engine/detection/gazeDetector';
 import { ensureMediaPipe } from '@/engine/mediapipe/mediapipeService';
-import { processAudioFileV2, extractSoundPatternV2 } from '@/engine/sound/index';
-import type { SoundFrameV2 } from '@/engine/sound/types';
+import { extractEyesFramesV2 } from '@/engine/eyes/featureExtractor';
+import { processAudioFileV2 } from '@/engine/sound/index';
 
 // ── Audio Processing (V2 pipeline) ──
 
@@ -129,28 +128,29 @@ export async function processVideoForEyes(
   onProgress?: (pct: number) => void,
 ): Promise<EyesFrame[]> {
   await ensureMediaPipe();
+  const { detectFace } = await import('@/engine/mediapipe/mediapipeService');
 
   const video = await createVideoElement(file);
-  const detector = new GazeDetector();
-  const frames: EyesFrame[] = [];
 
   const duration = video.duration;
   const fps = 5;
   const interval = 1 / fps;
   const totalFrames = Math.floor(duration * fps);
 
+  const rawFrames: Array<{ t: number; landmarks: number[][] | null; confidence?: number }> = [];
+
   for (let i = 0; i < totalFrames; i++) {
     const time = i * interval;
     await seekTo(video, time);
 
-    const gazeFrame = detector.processVideoFrame(video);
+    const ts = time * 1000;
+    const faceResult = detectFace(video, ts);
+    const faceLandmarks = faceResult?.faceLandmarks?.[0];
 
-    frames.push({
-      timestamp: time * 1000,
-      gazeX: gazeFrame.gazeX,
-      gazeY: gazeFrame.gazeY,
-      zone: gazeFrame.zone,
-      blinkDetected: false,
+    rawFrames.push({
+      t: time,
+      landmarks: faceLandmarks?.map((lm) => [lm.x, lm.y, lm.z]) ?? null,
+      confidence: faceLandmarks ? 0.8 : 0,
     });
 
     if (onProgress && i % 3 === 0) {
@@ -158,8 +158,25 @@ export async function processVideoForEyes(
     }
   }
 
+  const v2Frames = extractEyesFramesV2(rawFrames);
   cleanup(video);
-  return frames;
+
+  return v2Frames.map((f) => ({
+    timestamp: f.t * 1000,
+    gazeX: f.gazeX,
+    gazeY: f.gazeY,
+    zone: f.zone,
+    blinkDetected: f.blinkDetected,
+    // Extra fields retained for Eyes module bridge (optional)
+    ...( {
+      faceDetected: f.faceDetected,
+      quality: f.quality,
+      headYaw: f.headYaw,
+      headPitch: f.headPitch,
+      earLeft: f.earLeft,
+      earRight: f.earRight,
+    } as Record<string, unknown>),
+  })) as EyesFrame[];
 }
 
 // ── Video Processing for Sound (from video file) ──

@@ -106,3 +106,9 @@ export function compareSoundStyleCrossLanguage(
 
 // ── Re-exports for convenience ──
 export type { SoundFrameV2, SoundPatternV2, SoundCompareResultV2 } from './types';
+export { compareStyleFingerprints, extractFingerprint } from './styleFingerprintComparer';
+export type { StyleFingerprint } from './styleFingerprintComparer';
+export { compareDeliveryStyle, extractDeliveryProfile, setDeliveryParams, getDeliveryParams } from './styleDeliveryComparer';
+export type { DeliveryParams, DeliveryProfile } from './styleDeliveryComparer';
+export { compareWav2VecStyle, DEFAULT_WAV2VEC_PARAMS } from './styleWav2vecComparer';
+export type { Wav2VecParams, Wav2VecCompareOptions } from './styleWav2vecComparer';
