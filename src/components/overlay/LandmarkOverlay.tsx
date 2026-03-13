@@ -4,8 +4,10 @@ import {
   detectPose,
   detectFace,
   drawLandmarks,
+  getMediaPipeInitStatus,
   type PoseLandmarkerResult,
   type FaceLandmarkerResult,
+  type MediaPipeInitStatus,
 } from '@/engine/mediapipe/mediapipeService';
 
 interface Props {
@@ -15,13 +17,14 @@ interface Props {
   height?: number;
   mirrored?: boolean;
   onResults?: (pose: PoseLandmarkerResult | null, face: FaceLandmarkerResult | null) => void;
+  onStatusChange?: (status: MediaPipeInitStatus) => void;
 }
 
 /**
  * Renders a <canvas> overlay that draws MediaPipe landmarks on top of a video element.
  * Must be positioned absolutely over the video container.
  */
-export default function LandmarkOverlay({ videoRef, active, width, height, mirrored = true, onResults }: Props) {
+export default function LandmarkOverlay({ videoRef, active, width, height, mirrored = true, onResults, onStatusChange }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
   const loadingRef = useRef(false);
@@ -77,10 +80,29 @@ export default function LandmarkOverlay({ videoRef, active, width, height, mirro
     }
 
     if (!readyRef.current) {
+      const status = getMediaPipeInitStatus();
+      onStatusChange?.(status);
+
+      const stageLabel: Record<string, string> = {
+        idle: 'Waiting to initialize MediaPipe…',
+        'loading-fileset': 'Loading MediaPipe fileset…',
+        'loading-pose-model': 'Loading Pose model…',
+        'loading-face-model': 'Loading Face model…',
+        ready: 'MediaPipe ready',
+        error: 'MediaPipe init failed',
+      };
+
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = 'hsla(215, 14%, 50%, 0.9)';
       ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, monospace';
-      ctx.fillText('MediaPipe loading...', 12, 20);
+      ctx.fillText(stageLabel[status.stage] ?? 'MediaPipe loading…', 12, 20);
+
+      if (status.error) {
+        ctx.fillStyle = 'hsla(0, 84%, 60%, 0.9)';
+        ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+        ctx.fillText('Check console for model/network error details', 12, 38);
+      }
+
       rafRef.current = requestAnimationFrame(tick);
       return;
     }
@@ -106,9 +128,10 @@ export default function LandmarkOverlay({ videoRef, active, width, height, mirro
 
     if (mirrored) ctx.restore();
 
+    onStatusChange?.(getMediaPipeInitStatus());
     onResults?.(poseResult, faceResult);
     rafRef.current = requestAnimationFrame(tick);
-  }, [videoRef, mirrored, onResults]);
+  }, [videoRef, mirrored, onResults, onStatusChange]);
 
   useEffect(() => {
     if (active) {

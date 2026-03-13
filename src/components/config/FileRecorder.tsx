@@ -29,7 +29,15 @@ export default function FileRecorder({ moduleId, onRecorded, onCancel }: FileRec
       try {
         const constraints: MediaStreamConstraints = isAudioOnly
           ? { audio: true, video: false }
-          : { audio: true, video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } };
+          : {
+              audio: true,
+              video: {
+                facingMode: 'user',
+                width: { ideal: 720 },
+                height: { ideal: 1280 },
+                aspectRatio: { ideal: 9 / 16 },
+              },
+            };
 
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         if (cancelled) {
@@ -117,10 +125,10 @@ export default function FileRecorder({ moduleId, onRecorded, onCancel }: FileRec
           </motion.div>
         </div>
       ) : (
-        <div className="relative">
+        <div className="relative max-w-[240px] mx-auto">
           <video
             ref={videoRef}
-            className="w-full h-36 object-cover bg-background"
+            className="w-full aspect-[9/16] object-cover bg-background"
             playsInline
             muted
           />

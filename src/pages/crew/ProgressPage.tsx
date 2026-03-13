@@ -21,6 +21,37 @@ interface SessionScores {
   zoneDwellTimes?: Record<string, number>;
 }
 
+function toFiniteNumber(value: unknown): number | undefined {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function getModuleScore(value: unknown): number | undefined {
+  const direct = toFiniteNumber(value);
+  if (direct !== undefined) return direct;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return toFiniteNumber((value as Record<string, unknown>).score);
+  }
+  return undefined;
+}
+
+function toFiniteNumberArray(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const arr = value.map((item) => toFiniteNumber(item)).filter((item): item is number => item !== undefined);
+  return arr.length > 0 ? arr : undefined;
+}
+
+function toFiniteRecord(value: unknown): Record<string, number> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .map(([key, raw]) => {
+      const n = toFiniteNumber(raw);
+      return n === undefined ? null : [key, n] as const;
+    })
+    .filter((entry): entry is readonly [string, number] => entry !== null);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 interface Session {
   id: string;
   consciousness_percent: number;
@@ -38,7 +69,15 @@ const levelColors: Record<string, string> = {
 
 function parseScores(s: Json | null): SessionScores {
   if (!s || typeof s !== 'object' || Array.isArray(s)) return {};
-  return s as unknown as SessionScores;
+  const raw = s as Record<string, unknown>;
+  return {
+    motion: getModuleScore(raw.motion),
+    sound: getModuleScore(raw.sound),
+    eyes: getModuleScore(raw.eyes),
+    pitchContour: toFiniteNumberArray(raw.pitchContour),
+    volumeContour: toFiniteNumberArray(raw.volumeContour),
+    zoneDwellTimes: toFiniteRecord(raw.zoneDwellTimes),
+  };
 }
 
 const cardVariants = {
@@ -84,15 +123,19 @@ export default function ProgressPage() {
   // Aggregate MSE averages
   const mseAvg = useMemo(() => {
     if (sessions.length === 0) return { motion: 0, sound: 0, eyes: 0 };
-    let m = 0, s = 0, e = 0, c = 0;
+    let m = 0, s = 0, e = 0;
+    let mCount = 0, sCount = 0, eCount = 0;
     sessions.forEach(sess => {
       const sc = parseScores(sess.scores);
-      if (sc.motion != null) { m += sc.motion; c++; }
-      if (sc.sound != null) { s += sc.sound; }
-      if (sc.eyes != null) { e += sc.eyes; }
+      if (sc.motion != null) { m += sc.motion; mCount++; }
+      if (sc.sound != null) { s += sc.sound; sCount++; }
+      if (sc.eyes != null) { e += sc.eyes; eCount++; }
     });
-    const n = c || 1;
-    return { motion: Math.round(m / n), sound: Math.round(s / n), eyes: Math.round(e / n) };
+    return {
+      motion: Math.round(m / Math.max(1, mCount)),
+      sound: Math.round(s / Math.max(1, sCount)),
+      eyes: Math.round(e / Math.max(1, eCount)),
+    };
   }, [sessions]);
 
   // Trend data (chronological)

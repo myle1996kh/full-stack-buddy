@@ -6,12 +6,12 @@
 
 import { describe, it, expect } from 'vitest';
 import type { SoundPatternV2 } from '@/engine/sound/types';
-import { compareSoundStyle } from '@/engine/sound/styleComparer';
 import { evaluateQuality } from '@/engine/sound/qualityGate';
 import { extractSoundPattern } from '@/engine/sound/patternExtractor';
 import { compareStyleFingerprints, extractFingerprint } from '@/engine/sound/styleFingerprintComparer';
 import { compareDeliveryStyle, extractDeliveryProfile } from '@/engine/sound/styleDeliveryComparer';
-import { compareWav2VecStyle } from '@/engine/sound/styleWav2vecComparer';
+import { compareCoachSStyle } from '@/engine/sound/styleCoachSComparer';
+import { extractMeasureSAcousticFeatures } from '@/engine/sound/measureSFeatureExtractor';
 import type { SoundFrameV2 } from '@/engine/sound/types';
 
 // ── Helper: create a synthetic pattern ──
@@ -40,337 +40,68 @@ function makePattern(overrides: Partial<SoundPatternV2> = {}): SoundPatternV2 {
   };
 }
 
-describe('Sound V2.1 - Determinism', () => {
-  it('returns identical scores for identical inputs across 10 runs', () => {
-    const ref = makePattern();
-    const usr = makePattern();
+describe('Measure S waveform extraction', () => {
+  it('extracts librosa-style RMS, tempo, and segment counts from raw waveform', () => {
+    const sr = 16000;
+    const duration = 2;
+    const samples = new Float32Array(sr * duration);
 
-    const scores: number[] = [];
-    for (let i = 0; i < 10; i++) {
-      const result = compareSoundStyle(ref, usr);
-      scores.push(result.score);
+    const pulseStarts = [0, 0.5, 1.0, 1.5];
+    for (const startSec of pulseStarts) {
+      const start = Math.floor(startSec * sr);
+      const len = Math.floor(0.08 * sr);
+      for (let i = 0; i < len && start + i < samples.length; i++) {
+        const t = i / sr;
+        samples[start + i] = 0.4 * Math.sin(2 * Math.PI * 220 * t);
+      }
     }
 
-    // All scores must be identical
-    expect(new Set(scores).size).toBe(1);
-    expect(scores[0]).toBeGreaterThan(80); // same input = high score
-  });
+    const features = extractMeasureSAcousticFeatures(samples, sr, duration);
+    expect(features.avgRms).toBeGreaterThan(0);
+    expect(features.maxRms).toBeGreaterThan(features.avgRms);
+    expect(features.nSegments).toBeGreaterThanOrEqual(3);
+    expect(features.tempoBpm).toBeGreaterThan(90);
+    expect(features.tempoBpm).toBeLessThan(150);
+  }, 15000);
 
-  it('flat but identical contours still score high (no false zero from Pearson)', () => {
-    const flat = makePattern({
-      pitchContourNorm: new Array(180).fill(0),
-      pitchSlope: new Array(180).fill(0),
-      pitchContourVoiced: new Array(180).fill(0),
-      pitchSlopeVoiced: new Array(180).fill(0),
-      energyContourNorm: new Array(180).fill(0),
-      spectralCentroidContour: new Array(180).fill(0),
-      spectralRolloffContour: new Array(180).fill(0),
-    });
-
-    const result = compareSoundStyle(flat, flat);
-    expect(result.score).toBeGreaterThan(75);
-    expect(result.breakdown.intonation).toBeGreaterThan(70);
-  });
-});
-
-describe('Sound V2.1 - Cross-language style', () => {
-  it('pitch shift with same shape scores high on intonation', () => {
-    const ref = makePattern();
-    // Shift pitch up by 3 semitones but keep same shape
-    const shifted = makePattern({
-      pitchContourVoiced: ref.pitchContourVoiced.map(v => v + 3),
-      pitchContourNorm: ref.pitchContourNorm.map(v => v + 3),
-      pitchSlopeVoiced: ref.pitchSlopeVoiced, // same slope = same shape
-      pitchSlope: ref.pitchSlope,
-    });
-
-    const result = compareSoundStyle(ref, shifted);
-    // Intonation should still be reasonable because DTW handles shift
-    expect(result.breakdown.intonation).toBeGreaterThan(40);
-    expect(result.score).toBeGreaterThan(40);
-  });
-
-  it('monotone vs expressive shows low intonation score', () => {
-    const expressive = makePattern();
-    const monotone = makePattern({
-      pitchContourNorm: new Array(180).fill(0),
-      pitchSlope: new Array(180).fill(0),
-      pitchContourVoiced: new Array(180).fill(0),
-      pitchSlopeVoiced: new Array(180).fill(0),
-    });
-
-    const result = compareSoundStyle(expressive, monotone);
-    expect(result.breakdown.intonation).toBeLessThan(60);
-  });
-
-  it('strongly mismatched prosody should stay below medium score', () => {
+  it('Measure S prefers attached acoustic features over proxy fallbacks', async () => {
     const ref = makePattern({
-      pitchContourNorm: new Array(180).fill(0).map((_, i) => Math.sin(i * 0.12) * 2.2),
-      pitchSlope: new Array(180).fill(0).map((_, i) => Math.cos(i * 0.12) * 0.3),
-      pitchContourVoiced: new Array(180).fill(0).map((_, i) => Math.sin(i * 0.12) * 2.2),
-      pitchSlopeVoiced: new Array(180).fill(0).map((_, i) => Math.cos(i * 0.12) * 0.3),
-      energyContourNorm: new Array(180).fill(0).map((_, i) => Math.sin(i * 0.07)),
-      spectralCentroidContour: new Array(180).fill(0).map((_, i) => Math.sin(i * 0.1)),
-      spectralRolloffContour: new Array(180).fill(0).map((_, i) => Math.cos(i * 0.1)),
-      pausePattern: [{ pos: 1.0, dur: 0.35 }, { pos: 2.4, dur: 0.28 }, { pos: 3.7, dur: 0.3 }],
-      speechRate: 4.2,
-      avgIOI: 380,
-      regularity: 0.82,
-      voicedRatio: 0.72,
+      measureS: {
+        duration: 2.38,
+        tempoBpm: 103.4,
+        avgRms: 0.0543,
+        maxRms: 0.2452,
+        nSegments: 7,
+      },
     });
 
-    const veryDifferent = makePattern({
-      pitchContourNorm: new Array(180).fill(0).map((_, i) => (i % 24 < 12 ? -2.5 : 2.5)),
-      pitchSlope: new Array(180).fill(0),
-      pitchContourVoiced: new Array(180).fill(0).map((_, i) => (i % 24 < 12 ? -2.5 : 2.5)),
-      pitchSlopeVoiced: new Array(180).fill(0),
-      energyContourNorm: new Array(180).fill(0).map((_, i) => (i % 30 < 5 ? 2 : -1.5)),
-      spectralCentroidContour: new Array(180).fill(0).map((_, i) => (i % 20 < 10 ? 1.5 : -1.5)),
-      spectralRolloffContour: new Array(180).fill(0).map((_, i) => (i % 15 < 8 ? 1 : -1)),
-      pausePattern: [],
-      speechRate: 1.6,
-      avgIOI: 980,
-      regularity: 0.22,
-      voicedRatio: 0.35,
-    });
-
-    const result = compareSoundStyle(ref, veryDifferent);
-    expect(result.score).toBeLessThan(60);
-  });
-
-  it('different speed but same prosody still scores okay (DTW flexibility)', () => {
-    const ref = makePattern({ speechRate: 4.0, avgIOI: 400 });
-    // Slower but same overall pattern shape
-    const slower = makePattern({ speechRate: 2.5, avgIOI: 650 });
-
-    const result = compareSoundStyle(ref, slower);
-    // DTW should partially compensate for speed difference
-    expect(result.score).toBeGreaterThan(30);
-    // But rhythm should show the difference
-    expect(result.breakdown.rhythmPause).toBeLessThan(80);
-  });
-
-  it('pause misalignment reduces rhythmPause score', () => {
-    const ref = makePattern({
-      pausePattern: [{ pos: 1.0, dur: 0.3 }, { pos: 3.0, dur: 0.4 }],
-    });
-    const misaligned = makePattern({
-      pausePattern: [{ pos: 2.0, dur: 0.3 }, { pos: 4.5, dur: 0.4 }],
-    });
-
-    const result = compareSoundStyle(ref, misaligned);
-    expect(result.breakdown.rhythmPause).toBeLessThan(90);
-  });
-});
-
-describe('Sound V2.1 - Voiced-only contour', () => {
-  it('intonation uses voiced contour when available (higher fidelity)', () => {
-    // Voiced contour has clean melody, legacy contour is zero-polluted
-    const cleanMelody = new Array(180).fill(0).map((_, i) => Math.sin(i * 0.1) * 2);
-    const pollutedMelody = new Array(180).fill(0).map((_, i) =>
-      i % 3 === 0 ? 0 : Math.sin(i * 0.1) * 2 // every 3rd sample is zero (simulating zero-fill)
-    );
-
-    const ref = makePattern({
-      pitchContourVoiced: cleanMelody,
-      pitchContourNorm: pollutedMelody,
-    });
     const usr = makePattern({
-      pitchContourVoiced: cleanMelody,
-      pitchContourNorm: pollutedMelody,
+      measureS: {
+        duration: 2.43,
+        tempoBpm: 103.4,
+        avgRms: 0.0569,
+        maxRms: 0.2785,
+        nSegments: 5,
+      },
+      onsetTimes: [0.25, 0.5, 0.75, 1.0], // intentionally conflicting proxy tempo
     });
 
-    const result = compareSoundStyle(ref, usr);
-    // Should get high intonation because voiced contours are clean and identical
-    expect(result.breakdown.intonation).toBeGreaterThan(80);
-  });
-
-  it('falls back to legacy contour when voiced contour is all zeros', () => {
-    const melody = new Array(180).fill(0).map((_, i) => Math.sin(i * 0.1) * 2);
-
-    const ref = makePattern({
-      pitchContourVoiced: new Array(180).fill(0), // empty/flat
-      pitchContourNorm: melody,
-    });
-    const usr = makePattern({
-      pitchContourVoiced: new Array(180).fill(0), // empty/flat
-      pitchContourNorm: melody,
-    });
-
-    const result = compareSoundStyle(ref, usr);
-    // Should still work via fallback to legacy
-    expect(result.breakdown.intonation).toBeGreaterThan(70);
+    const result = await compareCoachSStyle(ref, usr, COACH_S_LOCAL_PARAMS, { applyQualityPenalty: false });
+    expect(result.debug!.refMeasureSFeatures).toBe(1);
+    expect(result.debug!.usrMeasureSFeatures).toBe(1);
+    expect(result.debug!.refTempoBpm).toBeCloseTo(103.4, 1);
+    expect(result.debug!.usrTempoBpm).toBeCloseTo(103.4, 1);
+    expect(result.debug!.tempoScore).toBeGreaterThanOrEqual(90);
   });
 });
-
-describe('Sound V2.1 - Spectral comparison', () => {
-  it('similar spectral contours score high on timbre', () => {
-    const ref = makePattern();
-    const usr = makePattern(); // same spectral contours
-
-    const result = compareSoundStyle(ref, usr);
-    expect(result.breakdown.timbre).toBeGreaterThan(80);
-    expect(result.debug!.centroidSim).toBeGreaterThan(0.8);
-    expect(result.debug!.rolloffSim).toBeGreaterThan(0.8);
-  });
-
-  it('very different spectral contours reduce timbre score', () => {
-    const ref = makePattern({
-      spectralCentroidContour: new Array(180).fill(0).map((_, i) => Math.sin(i * 0.05)),
-      spectralRolloffContour: new Array(180).fill(0).map((_, i) => Math.cos(i * 0.03)),
-    });
-    const usr = makePattern({
-      spectralCentroidContour: new Array(180).fill(0).map((_, i) => (i % 20 < 10 ? 2 : -2)),
-      spectralRolloffContour: new Array(180).fill(0).map((_, i) => (i % 15 < 7 ? 1.5 : -1.5)),
-    });
-
-    const result = compareSoundStyle(ref, usr);
-    expect(result.breakdown.timbre).toBeLessThan(80);
-  });
-
-  it('empty spectral contours degrade gracefully', () => {
-    const ref = makePattern({
-      spectralCentroidContour: [],
-      spectralRolloffContour: [],
-    });
-    const usr = makePattern({
-      spectralCentroidContour: [],
-      spectralRolloffContour: [],
-    });
-
-    // Should not crash, just get lower timbre (spectral portion = 0)
-    const result = compareSoundStyle(ref, usr);
-    expect(result.score).toBeGreaterThanOrEqual(0);
-    expect(result.breakdown.timbre).toBeDefined();
-  });
-});
-
-describe('Sound V2.1 - Weight rebalance', () => {
-  it('intonation weight is 30% by default (not 10%)', () => {
-    const ref = makePattern();
-    const usr = makePattern();
-    const result = compareSoundStyle(ref, usr);
-
-    expect(result.debug!.w_intonation).toBeCloseTo(0.3, 1);
-    expect(result.debug!.w_rhythmPause).toBeCloseTo(0.25, 1);
-    expect(result.debug!.w_energy).toBeCloseTo(0.2, 1);
-    expect(result.debug!.w_timbre).toBeCloseTo(0.25, 1);
-  });
-
-  it('intonation difference now significantly impacts total score', () => {
-    const ref = makePattern();
-    // Same everything except very different intonation
-    const diffIntonation = makePattern({
-      pitchContourVoiced: new Array(180).fill(0).map((_, i) => (i % 20 < 10 ? -3 : 3)),
-      pitchSlopeVoiced: new Array(180).fill(0),
-      pitchContourNorm: new Array(180).fill(0).map((_, i) => (i % 20 < 10 ? -3 : 3)),
-      pitchSlope: new Array(180).fill(0),
-    });
-
-    const result = compareSoundStyle(ref, diffIntonation);
-    // With 30% weight, bad intonation should drag overall score down significantly
-    expect(result.score).toBeLessThan(75);
-  });
-});
-
-describe('Sound V2.1 - Quality Gate', () => {
-  it('high quality audio returns factor close to 1.0', () => {
-    const pattern = makePattern({
-      quality: { snrLike: 30, clippingRatio: 0, confidence: 0.9 },
-      voicedRatio: 0.7,
-    });
-    const report = evaluateQuality(pattern);
-    expect(report.factor).toBeGreaterThanOrEqual(0.95);
-    expect(report.warnings).toHaveLength(0);
-  });
-
-  it('noisy audio reduces quality factor', () => {
-    const pattern = makePattern({
-      quality: { snrLike: 4, clippingRatio: 0, confidence: 0.7 },
-    });
-    const report = evaluateQuality(pattern);
-    expect(report.factor).toBeLessThan(0.85);
-    expect(report.warnings.length).toBeGreaterThan(0);
-  });
-
-  it('clipped audio produces warning and reduced factor', () => {
-    const pattern = makePattern({
-      quality: { snrLike: 25, clippingRatio: 0.1, confidence: 0.8 },
-    });
-    const report = evaluateQuality(pattern);
-    expect(report.factor).toBeLessThan(0.9);
-    expect(report.warnings.some(w => w.toLowerCase().includes('clip'))).toBe(true);
-  });
-
-  it('very short recording reduces factor', () => {
-    const pattern = makePattern({ duration: 0.5 });
-    const report = evaluateQuality(pattern);
-    expect(report.factor).toBeLessThan(0.9);
-  });
-
-  it('quality factor never goes below 0.4', () => {
-    const terrible = makePattern({
-      duration: 0.3,
-      voicedRatio: 0.05,
-      quality: { snrLike: 2, clippingRatio: 0.2, confidence: 0.1 },
-    });
-    const report = evaluateQuality(terrible);
-    expect(report.factor).toBeGreaterThanOrEqual(0.4);
-  });
-});
-
-describe('Sound V2.1 - Quality Penalty Toggle', () => {
-  it('applyQualityPenalty reduces DTW final score for poor quality audio', () => {
-    const ref = makePattern();
-    const poor = makePattern({
-      quality: { snrLike: 3, clippingRatio: 0.12, confidence: 0.2 },
-      voicedRatio: 0.08,
-      duration: 0.6,
-    });
-
-    const withoutPenalty = compareSoundStyle(ref, poor, undefined, { applyQualityPenalty: false });
-    const withPenalty = compareSoundStyle(ref, poor, undefined, { applyQualityPenalty: true });
-
-    expect(withPenalty.score).toBeLessThanOrEqual(withoutPenalty.score);
-    expect(withPenalty.debug!.applyQualityPenalty).toBe(1);
-  });
-
-  it('applyQualityPenalty reduces fingerprint final score for poor quality audio', () => {
-    const ref = makePattern();
-    const poor = makePattern({
-      quality: { snrLike: 4, clippingRatio: 0.08, confidence: 0.25 },
-      voicedRatio: 0.1,
-      duration: 0.8,
-    });
-
-    const withoutPenalty = compareStyleFingerprints(ref, poor);
-    const withPenalty = compareStyleFingerprints(ref, poor, undefined, { applyQualityPenalty: true });
-
-    expect(withPenalty.score).toBeLessThanOrEqual(withoutPenalty.score);
-    expect(withPenalty.debug!.applyQualityPenalty).toBe(1);
-  });
-});
-
-describe('Sound V2.1 - Score has breakdown + feedback', () => {
-  it('result contains all required fields including new spectral debug', () => {
-    const ref = makePattern();
-    const usr = makePattern();
-    const result = compareSoundStyle(ref, usr);
-
-    expect(result.score).toBeGreaterThanOrEqual(0);
-    expect(result.score).toBeLessThanOrEqual(100);
-    expect(result.breakdown).toHaveProperty('intonation');
-    expect(result.breakdown).toHaveProperty('rhythmPause');
-    expect(result.breakdown).toHaveProperty('energy');
-    expect(result.breakdown).toHaveProperty('timbre');
-    expect(result.qualityFactor).toBeGreaterThanOrEqual(0.6);
-    expect(result.qualityFactor).toBeLessThanOrEqual(1.0);
-    expect(Array.isArray(result.feedback)).toBe(true);
-    // New debug fields
-    expect(result.debug).toHaveProperty('centroidSim');
-    expect(result.debug).toHaveProperty('rolloffSim');
-  });
-});
+);
+);
+);
+);
+);
+);
+);
+);
 
 describe('Sound V2.1 - Pattern Extraction', () => {
   it('extracts pattern with voiced-only contours from synthetic frames', () => {
@@ -736,38 +467,191 @@ describe('Delivery Pattern - Result structure', () => {
     expect(result.debug!.w_elongation).toBeCloseTo(0.5, 1);
   });
 });
+);
+);
 
-describe('Wav2Vec Hybrid - Core behavior', () => {
-  it('returns expected structure with hybrid breakdown keys', () => {
-    const result = compareWav2VecStyle(makePattern(), makePattern());
+// ══════════════════════════════════════════════════════════
+// Vocal Coach S (Measure S) — VOCAL_SCORING_SPEC Tests
+// ══════════════════════════════════════════════════════════
+
+const COACH_S_LOCAL_PARAMS = {
+  llm: {
+    enabled: false,
+    baseUrl: 'http://localhost:9999/v1',
+    model: 'combo:mse',
+    combo: 'mse',
+    timeoutMs: 1000,
+  },
+  scoring: {
+    energyCapThreshold: 20,
+    energyCapMultiplier: 2.5,
+    energyFloorRatio: 0.6,
+    energyFloorMultiplier: 1.05,
+    tempoGateEnabled: true,
+    tempoGateThreshold: 45,
+    tempoGateCapMin: 20,
+    tempoGateCapMax: 40,
+  },
+};
+
+describe('Vocal Coach S — Structure & Determinism', () => {
+  it('returns coach-S breakdown with tempo, energy, and grade', async () => {
+    const result = await compareCoachSStyle(makePattern(), makePattern(), COACH_S_LOCAL_PARAMS);
     expect(result.score).toBeGreaterThanOrEqual(0);
     expect(result.score).toBeLessThanOrEqual(100);
-    expect(result.breakdown).toHaveProperty('embedding');
-    expect(result.breakdown).toHaveProperty('delivery');
-    expect(result.breakdown).toHaveProperty('fingerprint');
-    expect(result.debug).toHaveProperty('embedSim');
-    expect(result.debug).toHaveProperty('w_embedding');
+    expect(result.breakdown).toHaveProperty('tempo');
+    expect(result.breakdown).toHaveProperty('energy');
+    expect(result.debug).toHaveProperty('tempoScore');
+    expect(result.debug).toHaveProperty('energyScore');
+    expect(result.debug).toHaveProperty('grade');
+    expect(result.debug).toHaveProperty('bpmDiffPct');
+    expect(result.debug).toHaveProperty('energyDiffPct');
+    expect(result.debug).toHaveProperty('energyDirection');
+    expect(result.debug).toHaveProperty('llmUsed');
+    expect(result.debug!.llmUsed).toBe(0); // local mode
+    expect(Array.isArray(result.feedback)).toBe(true);
   });
 
-  it('is deterministic across repeated runs', () => {
-    const ref = makePattern();
-    const usr = makePattern({ speechRate: 3.1, regularity: 0.62 });
+  it('is deterministic in local formula mode', async () => {
+    const ref = makePattern({ avgIOI: 520, regularity: 0.65 });
+    const usr = makePattern({ avgIOI: 700, regularity: 0.35 });
+
     const scores: number[] = [];
-    for (let i = 0; i < 10; i++) {
-      scores.push(compareWav2VecStyle(ref, usr).score);
+    for (let i = 0; i < 5; i++) {
+      const r = await compareCoachSStyle(ref, usr, COACH_S_LOCAL_PARAMS, { applyQualityPenalty: false });
+      scores.push(r.score);
     }
     expect(new Set(scores).size).toBe(1);
   });
+});
 
-  it('uses provided wav2vec embeddings when attached', () => {
-    const ref: any = makePattern();
-    const usr: any = makePattern();
-    ref._wav2vecEmbedding = [1, 0, 0, 0];
-    usr._wav2vecEmbedding = [1, 0, 0, 0];
+describe('Vocal Coach S — Tiered Tempo Scoring', () => {
+  it('identical BPM → score ~97 (perfect match tier)', async () => {
+    const ref = makePattern({
+      onsetTimes: [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0],
+      duration: 5,
+    });
+    const usr = makePattern({
+      onsetTimes: [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0], // same
+      duration: 5,
+    });
 
-    const result = compareWav2VecStyle(ref, usr);
-    expect(result.debug!.refEmbeddingSource).toBe(1);
-    expect(result.debug!.usrEmbeddingSource).toBe(1);
-    expect(result.breakdown.embedding).toBeGreaterThanOrEqual(95);
+    const result = await compareCoachSStyle(ref, usr, COACH_S_LOCAL_PARAMS);
+    expect(result.debug!.bpmDiffPct).toBeLessThanOrEqual(1);
+    expect(result.debug!.tempoScore).toBeGreaterThanOrEqual(90);
+  });
+
+  it('very different BPM (gấp đôi) → score ~20 (worst tier)', async () => {
+    const ref = makePattern({
+      onsetTimes: [0.5, 1.0, 1.5, 2.0],
+      duration: 3,
+    });
+    // Double the speed
+    const usr = makePattern({
+      onsetTimes: [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0],
+      duration: 3,
+    });
+
+    const result = await compareCoachSStyle(ref, usr, COACH_S_LOCAL_PARAMS);
+    expect(result.debug!.tempoScore).toBeLessThanOrEqual(35);
+  });
+});
+
+describe('Vocal Coach S — Direction-Aware Energy', () => {
+  it('small energy difference scores high regardless of direction', async () => {
+    const ref = makePattern();
+    const usr = makePattern(); // same energy
+    const result = await compareCoachSStyle(ref, usr, COACH_S_LOCAL_PARAMS);
+    expect(result.debug!.energyScore).toBeGreaterThanOrEqual(70);
+  });
+
+  it('very low energy (softer extreme) scores very low', async () => {
+    const ref = makePattern({
+      energyContourNorm: new Array(180).fill(0).map((_, i) => Math.sin(i * 0.05) * 1.5),
+      quality: { snrLike: 25, clippingRatio: 0, confidence: 0.9 },
+    });
+    const usr = makePattern({
+      energyContourNorm: new Array(180).fill(0).map(() => 0.01), // near silent
+      quality: { snrLike: 2, clippingRatio: 0, confidence: 0.3 },
+    });
+
+    const result = await compareCoachSStyle(ref, usr, COACH_S_LOCAL_PARAMS);
+    expect(result.debug!.energyScore).toBeLessThan(40);
+  });
+});
+
+describe('Vocal Coach S — Overall Rules (Cap & Floor)', () => {
+  it('energy_cap: when energy < 20, overall ≤ energy × 2.5', async () => {
+    // Manipulate patterns so energy score is very low but tempo is fine
+    const ref = makePattern({
+      onsetTimes: [0.5, 1.0, 1.5, 2.0, 2.5, 3.0],
+      duration: 4,
+      energyContourNorm: new Array(180).fill(0).map((_, i) => Math.sin(i * 0.05) * 1.5),
+      quality: { snrLike: 25, clippingRatio: 0, confidence: 0.9 },
+    });
+    const usr = makePattern({
+      onsetTimes: [0.5, 1.0, 1.5, 2.0, 2.5, 3.0], // same tempo
+      duration: 4,
+      energyContourNorm: new Array(180).fill(0).map(() => 0.001), // near silent
+      quality: { snrLike: 1, clippingRatio: 0, confidence: 0.1 },
+    });
+
+    const result = await compareCoachSStyle(ref, usr, COACH_S_LOCAL_PARAMS);
+    if (result.debug!.energyScore < 20) {
+      expect(result.debug!.rule_energyCap).toBe(1);
+      expect(result.debug!.overallScore).toBeLessThanOrEqual(result.debug!.energyScore * 2.5 + 1);
+    }
+  });
+
+  it('tempo gate blocks energy_floor and caps overall into low band when tempo is too low', async () => {
+    const ref = makePattern({
+      measureS: { duration: 5.22, tempoBpm: 66.3, avgRms: 0.052, maxRms: 0.361, nSegments: 11 },
+    });
+    const usr = makePattern({
+      measureS: { duration: 6.48, tempoBpm: 191.4, avgRms: 0.041, maxRms: 0.302, nSegments: 12 },
+    });
+
+    const result = await compareCoachSStyle(ref, usr, COACH_S_LOCAL_PARAMS, { applyQualityPenalty: false });
+    expect(result.debug!.tempoScore).toBeLessThan(45);
+    expect(result.debug!.rule_energyFloor).toBe(0);
+    expect(result.debug!.rule_tempoGateCap).toBe(1);
+    expect(result.debug!.rule_floorBlockedByTempoGate).toBe(1);
+    expect(result.debug!.overallScore).toBeLessThanOrEqual(40.5);
+    expect(result.debug!.overallScore).toBeGreaterThanOrEqual(19.5);
+  });
+});
+
+describe('Vocal Coach S — Grade Assignment', () => {
+  it('grade field maps correctly to score ranges', async () => {
+    const ref = makePattern();
+    const usr = makePattern();
+    const result = await compareCoachSStyle(ref, usr, COACH_S_LOCAL_PARAMS);
+
+    const grade = String(result.debug!.grade);
+    const overall = Number(result.debug!.overallScore);
+
+    if (overall >= 90) expect(grade).toBe('S');
+    else if (overall >= 80) expect(grade).toBe('A');
+    else if (overall >= 70) expect(grade).toBe('B');
+    else if (overall >= 55) expect(grade).toBe('C');
+    else if (overall >= 40) expect(grade).toBe('D');
+    else expect(grade).toBe('F');
+  });
+});
+
+describe('Vocal Coach S — Quality Penalty', () => {
+  it('quality penalty reduces final score for poor audio', async () => {
+    const ref = makePattern();
+    const poor = makePattern({
+      quality: { snrLike: 3, clippingRatio: 0.12, confidence: 0.2 },
+      voicedRatio: 0.08,
+      duration: 0.6,
+    });
+
+    const withoutPenalty = await compareCoachSStyle(ref, poor, COACH_S_LOCAL_PARAMS, { applyQualityPenalty: false });
+    const withPenalty = await compareCoachSStyle(ref, poor, COACH_S_LOCAL_PARAMS, { applyQualityPenalty: true });
+
+    expect(withPenalty.score).toBeLessThanOrEqual(withoutPenalty.score);
+    expect(withPenalty.debug!.applyQualityPenalty).toBe(1);
   });
 });

@@ -279,12 +279,6 @@ function ratioSim(a: number, b: number): number {
   return ratio * ratio;
 }
 
-/** Absolute difference similarity: 1.0 when equal, 0 when diff >= scale */
-function absSim(a: number, b: number, scale: number): number {
-  const diff = Math.abs(a - b);
-  return Math.max(0, 1 - diff / scale);
-}
-
 function mean(arr: number[]): number {
   if (arr.length === 0) return 0;
   return arr.reduce((a, b) => a + b, 0) / arr.length;

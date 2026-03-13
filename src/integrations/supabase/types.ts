@@ -189,6 +189,68 @@ export type Database = {
         }
         Relationships: []
       }
+      sound_advanced_analyses: {
+        Row: {
+          analysis_version: string
+          created_at: string
+          elongation: Json
+          file_url: string | null
+          id: string
+          intonation: Json
+          label: string | null
+          llm_payload: Json | null
+          pauses: Json
+          phrasing: Json
+          reference_or_attempt: string
+          rhythm: Json
+          summary: Json
+          test_result_id: string
+          visualization: Json | null
+        }
+        Insert: {
+          analysis_version?: string
+          created_at?: string
+          elongation?: Json
+          file_url?: string | null
+          id?: string
+          intonation?: Json
+          label?: string | null
+          llm_payload?: Json | null
+          pauses?: Json
+          phrasing?: Json
+          reference_or_attempt: string
+          rhythm?: Json
+          summary?: Json
+          test_result_id: string
+          visualization?: Json | null
+        }
+        Update: {
+          analysis_version?: string
+          created_at?: string
+          elongation?: Json
+          file_url?: string | null
+          id?: string
+          intonation?: Json
+          label?: string | null
+          llm_payload?: Json | null
+          pauses?: Json
+          phrasing?: Json
+          reference_or_attempt?: string
+          rhythm?: Json
+          summary?: Json
+          test_result_id?: string
+          visualization?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sound_advanced_analyses_test_result_id_fkey"
+            columns: ["test_result_id"]
+            isOneToOne: false
+            referencedRelation: "module_test_results"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sessions: {
         Row: {
           captain_id: string

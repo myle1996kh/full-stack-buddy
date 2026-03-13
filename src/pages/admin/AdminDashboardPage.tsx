@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import CollapsibleSection from '@/components/ui/collapsible-section';
 import { Users, BookOpen, Activity, TrendingUp } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -57,43 +58,54 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <motion.h1
-        className="text-2xl font-bold"
+      <motion.div
+        className="space-y-2"
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
       >
-        🛡️ Admin Dashboard
-      </motion.h1>
+        <p className="text-sm font-medium text-primary">Overview</p>
+        <h1 className="text-3xl font-bold tracking-tight">🛡️ Admin Dashboard</h1>
+        <p className="text-sm text-muted-foreground">A softer, clearer snapshot of users, lessons, and practice activity.</p>
+      </motion.div>
 
-      {loading ? (
-        <div className="grid grid-cols-2 gap-4">
-          {[1, 2, 3, 4].map(i => (
-            <Card key={i} className="glass animate-pulse h-28" />
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-4">
-          {cards.map((card, i) => (
-            <motion.div
-              key={card.label}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.1 }}
-            >
-              <Card className="glass">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <card.icon className={`w-4 h-4 ${card.color}`} />
-                    <span className="text-xs text-muted-foreground">{card.label}</span>
-                  </div>
-                  <p className="text-2xl font-bold">{card.value}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{card.sub}</p>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
-        </div>
-      )}
+      <CollapsibleSection
+        title="Key metrics"
+        description="Hide this section when you want more space for deeper workflow pages."
+      >
+        {loading ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[1, 2, 3, 4].map(i => (
+              <Card key={i} className="glass animate-pulse h-32" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {cards.map((card, i) => (
+              <motion.div
+                key={card.label}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.1 }}
+              >
+                <Card className="glass overflow-hidden">
+                  <CardContent className="p-5">
+                    <div className="mb-4 flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">{card.label}</p>
+                        <p className="mt-3 text-3xl font-bold tracking-tight">{card.value}</p>
+                      </div>
+                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
+                        <card.icon className={`w-5 h-5 ${card.color}`} />
+                      </div>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{card.sub}</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </CollapsibleSection>
     </div>
   );
 }

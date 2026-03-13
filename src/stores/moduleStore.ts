@@ -99,7 +99,7 @@ interface ModuleStoreState {
 
 const defaultConfigs: Record<MSEModuleId, ModuleConfig> = {
   motion: { enabled: true, activeMethodId: 'full-pose', enabledChartIds: ['skeleton-overlay', 'motion-trail'], activeComparerId: 'pose-angles', weight: 1.0 },
-  sound: { enabled: true, activeMethodId: 'full-prosody', enabledChartIds: ['sound-contour', 'waveform'], activeComparerId: 'style-delivery', weight: 1.0 },
+  sound: { enabled: true, activeMethodId: 'full-prosody', enabledChartIds: ['sound-contour', 'waveform'], activeComparerId: 'style-coach-s', weight: 1.0 },
   eyes: { enabled: true, activeMethodId: 'face-mesh-gaze', enabledChartIds: ['gaze-heatmap', 'gaze-timeline'], activeComparerId: 'gaze-pattern', weight: 1.0 },
 };
 

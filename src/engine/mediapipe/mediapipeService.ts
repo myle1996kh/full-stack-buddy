@@ -22,32 +22,82 @@ let lastFaceTimestamp = 0;
 let lastPoseWarnAt = 0;
 let lastFaceWarnAt = 0;
 
+export type MediaPipeInitStage =
+  | 'idle'
+  | 'loading-fileset'
+  | 'loading-pose-model'
+  | 'loading-face-model'
+  | 'ready'
+  | 'error';
+
+export interface MediaPipeInitStatus {
+  stage: MediaPipeInitStage;
+  loading: boolean;
+  poseReady: boolean;
+  faceReady: boolean;
+  delegate: 'GPU' | 'CPU' | null;
+  error?: string;
+}
+
+let initStatus: MediaPipeInitStatus = {
+  stage: 'idle',
+  loading: false,
+  poseReady: false,
+  faceReady: false,
+  delegate: null,
+};
+
 const WASM_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm';
 const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
-const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/2/face_landmarker.task';
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 async function loadModels(): Promise<void> {
+  initStatus = {
+    stage: 'loading-fileset',
+    loading: true,
+    poseReady: false,
+    faceReady: false,
+    delegate: null,
+  };
+
   const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
 
   const createWithDelegate = async (delegate: 'GPU' | 'CPU') => {
-    const [pose, face] = await Promise.all([
-      PoseLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: POSE_MODEL, delegate },
-        runningMode: 'VIDEO',
-        numPoses: 1,
-        minPoseDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      }),
-      FaceLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: FACE_MODEL, delegate },
-        runningMode: 'VIDEO',
-        numFaces: 1,
-        minFaceDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-        outputFaceBlendshapes: false,
-        outputFacialTransformationMatrixes: false,
-      }),
-    ]);
+    initStatus = {
+      ...initStatus,
+      loading: true,
+      stage: 'loading-pose-model',
+      delegate,
+      poseReady: false,
+      faceReady: false,
+      error: undefined,
+    };
+
+    const pose = await PoseLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: POSE_MODEL, delegate },
+      runningMode: 'VIDEO',
+      numPoses: 1,
+      minPoseDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
+
+    initStatus = {
+      ...initStatus,
+      stage: 'loading-face-model',
+      poseReady: true,
+      faceReady: false,
+    };
+
+    const face = await FaceLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: FACE_MODEL, delegate },
+      runningMode: 'VIDEO',
+      numFaces: 1,
+      minFaceDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+      outputFaceBlendshapes: false,
+      outputFacialTransformationMatrixes: false,
+    });
+
     return { pose, face };
   };
 
@@ -55,18 +105,55 @@ async function loadModels(): Promise<void> {
     const { pose, face } = await createWithDelegate('GPU');
     poseInstance = pose;
     faceInstance = face;
+    initStatus = {
+      ...initStatus,
+      stage: 'ready',
+      loading: false,
+      poseReady: true,
+      faceReady: true,
+      delegate: 'GPU',
+      error: undefined,
+    };
   } catch (gpuErr) {
     console.warn('MediaPipe GPU init failed, falling back to CPU:', gpuErr);
     const { pose, face } = await createWithDelegate('CPU');
     poseInstance = pose;
     faceInstance = face;
+    initStatus = {
+      ...initStatus,
+      stage: 'ready',
+      loading: false,
+      poseReady: true,
+      faceReady: true,
+      delegate: 'CPU',
+      error: undefined,
+    };
   }
 }
 
 export async function ensureMediaPipe(): Promise<void> {
-  if (poseInstance && faceInstance) return;
+  if (poseInstance && faceInstance) {
+    initStatus = {
+      ...initStatus,
+      stage: 'ready',
+      loading: false,
+      poseReady: true,
+      faceReady: true,
+      error: undefined,
+    };
+    return;
+  }
+
   if (!initPromise) {
     initPromise = loadModels().catch((err) => {
+      initStatus = {
+        ...initStatus,
+        stage: 'error',
+        loading: false,
+        poseReady: Boolean(poseInstance),
+        faceReady: Boolean(faceInstance),
+        error: err instanceof Error ? err.message : String(err),
+      };
       // Allow future retries if first init fails
       initPromise = null;
       throw err;
@@ -174,4 +261,8 @@ export function drawLandmarks(
 
 export function isMediaPipeReady(): boolean {
   return !!(poseInstance && faceInstance);
+}
+
+export function getMediaPipeInitStatus(): MediaPipeInitStatus {
+  return { ...initStatus };
 }

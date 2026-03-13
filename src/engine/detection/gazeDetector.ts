@@ -31,6 +31,10 @@ const RIGHT_EYE_BOTTOM = 374;
 // Nose tip for face center
 const NOSE_TIP = 1;
 
+// Sensitivity gain for iris ratios (raw iris motion is typically only ~0.35..0.65)
+const GAZE_GAIN_X = 2.4;
+const GAZE_GAIN_Y = 2.2;
+
 export class GazeDetector {
   private canvas: OffscreenCanvas;
   private ctx: OffscreenCanvasRenderingContext2D;
@@ -115,21 +119,20 @@ export class GazeDetector {
     bottom: { x: number; y: number },
     iris: { x: number; y: number }
   ): { x: number; y: number } {
-    // Horizontal: where is iris between outer and inner corners
-    const eyeWidth = Math.abs(inner.x - outer.x);
-    const irisFromOuter = Math.abs(iris.x - outer.x);
-    const rawX = eyeWidth > 0.001 ? irisFromOuter / eyeWidth : 0.5;
+    // Signed ratio preserves direction regardless of landmark ordering
+    const eyeWidth = inner.x - outer.x;
+    const rawX = Math.abs(eyeWidth) > 1e-5 ? (iris.x - outer.x) / eyeWidth : 0.5;
 
-    // Vertical: where is iris between top and bottom
-    const eyeHeight = Math.abs(bottom.y - top.y);
-    const irisFromTop = Math.abs(iris.y - top.y);
-    const rawY = eyeHeight > 0.001 ? irisFromTop / eyeHeight : 0.5;
+    const eyeHeight = bottom.y - top.y;
+    const rawY = Math.abs(eyeHeight) > 1e-5 ? (iris.y - top.y) / eyeHeight : 0.5;
 
-    // Map to 0-1 with center = 0.5
-    // Clamp and smooth — iris usually stays in 0.3-0.7 range
+    // Boost around center because raw iris ranges are narrow in practice
+    const boostedX = (rawX - 0.5) * GAZE_GAIN_X + 0.5;
+    const boostedY = (rawY - 0.5) * GAZE_GAIN_Y + 0.5;
+
     return {
-      x: Math.max(0, Math.min(1, rawX)),
-      y: Math.max(0, Math.min(1, rawY)),
+      x: Math.max(0, Math.min(1, boostedX)),
+      y: Math.max(0, Math.min(1, boostedY)),
     };
   }
 
@@ -200,8 +203,8 @@ export class GazeDetector {
   }
 
   private classifyZone(x: number, y: number): string {
-    const col = x < 0.33 ? 'left' : x > 0.66 ? 'right' : 'center';
-    const row = y < 0.33 ? 'top' : y > 0.66 ? 'bottom' : 'center';
+    const col = x < 0.4 ? 'left' : x > 0.6 ? 'right' : 'center';
+    const row = y < 0.4 ? 'top' : y > 0.6 ? 'bottom' : 'center';
     if (col === 'center' && row === 'center') return 'center';
     return `${row}-${col}`;
   }

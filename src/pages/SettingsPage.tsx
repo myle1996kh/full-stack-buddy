@@ -34,25 +34,27 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <motion.h1
-        className="text-2xl font-bold"
+      <motion.div
+        className="space-y-2"
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.3 }}
       >
-        Settings
-      </motion.h1>
+        <p className="text-sm font-medium text-primary">Preferences</p>
+        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
+        <p className="text-sm text-muted-foreground">Manage your profile, module tuning, and testing tools in one place.</p>
+      </motion.div>
 
       {/* Tab bar */}
-      <div className="flex gap-1 p-1 rounded-lg bg-muted">
+      <div className="flex gap-1 p-1.5 rounded-2xl border border-white/70 bg-muted/90 shadow-sm">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-medium py-2 px-3 rounded-md transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-medium py-2.5 px-3 rounded-xl transition-all ${
               activeTab === tab.id
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
+                ? 'bg-white text-foreground shadow-[0_10px_24px_rgba(255,59,48,0.12)]'
+                : 'text-muted-foreground hover:text-foreground hover:bg-white/60'
             }`}
           >
             <tab.icon className="w-3.5 h-3.5" />

@@ -1,4 +1,7 @@
-project_id = "doqvakuxptbdixequpsp"
+project_id = "goxnwazzqzfbuajjuzyv"
 
 [functions.classify-sound]
+verify_jwt = false
+
+[functions.sound-advanced-score]
 verify_jwt = false

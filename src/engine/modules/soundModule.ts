@@ -1,41 +1,35 @@
 /**
  * Sound MSE Module — wired to V2 pipeline.
- * extract() produces SoundPatternV2-compatible output,
- * compare() uses deterministic DTW-based style comparison.
+ * extract() produces SoundPatternV2-compatible output.
+ *
+ * Active comparers (purpose: so sánh mức độ giống nhau về âm thanh):
+ *  - style-coach-s   (DEFAULT) : Tempo + Energy — đúng nhịp, đúng lực giọng
+ *  - style-delivery             : Elongation, Emphasis, Expressiveness, Rhythm — phong cách nói
+ *  - style-fingerprint          : Melody/Energy/Rhythm/Voice character — sắc thái tổng thể
  */
 
 import type { MSEModule, SoundFrame, SoundPattern } from '@/types/modules';
 import {
   extractSoundPatternV2,
 } from '@/engine/sound/index';
-import { compareSoundStyle } from '@/engine/sound/styleComparer';
-import type { MetricWeights } from '@/engine/sound/styleComparer';
 import {
   compareStyleFingerprints,
   DEFAULT_FINGERPRINT_PARAMS,
 } from '@/engine/sound/styleFingerprintComparer';
 import {
-  compareWav2VecStyle,
-  DEFAULT_WAV2VEC_PARAMS,
-} from '@/engine/sound/styleWav2vecComparer';
-import { compareDeliveryStyle, setDeliveryParams } from '@/engine/sound/styleDeliveryComparer';
+  compareDeliveryStyle, setDeliveryParams,
+} from '@/engine/sound/styleDeliveryComparer';
 import type { DeliveryParams } from '@/engine/sound/styleDeliveryComparer';
+import {
+  compareCoachSStyle,
+  DEFAULT_COACH_S_PARAMS,
+} from '@/engine/sound/styleCoachSComparer';
+import type { CoachSParams } from '@/engine/sound/styleCoachSComparer';
 import type { FingerprintParams } from '@/engine/sound/styleFingerprintComparer';
-import type { Wav2VecParams } from '@/engine/sound/styleWav2vecComparer';
 import type { SoundPatternV2 } from '@/engine/sound/types';
 
-// Global dynamic weights — set from UI before running compare
-let _dynamicWeights: MetricWeights | undefined = undefined;
+// ── Delivery comparer params ──
 
-export function setSoundMetricWeights(weights: MetricWeights | undefined) {
-  _dynamicWeights = weights;
-}
-
-export function getSoundMetricWeights(): MetricWeights | undefined {
-  return _dynamicWeights;
-}
-
-// Delivery comparer params
 let _deliveryParams: DeliveryParams | undefined = undefined;
 
 export function setSoundDeliveryParams(params: DeliveryParams | undefined) {
@@ -47,6 +41,8 @@ export function getSoundDeliveryParams(): DeliveryParams | undefined {
   return _deliveryParams;
 }
 
+// ── Fingerprint comparer params ──
+
 let _fingerprintParams: FingerprintParams = { ...DEFAULT_FINGERPRINT_PARAMS };
 
 export function setSoundFingerprintParams(params: FingerprintParams | undefined) {
@@ -57,15 +53,26 @@ export function getSoundFingerprintParams(): FingerprintParams {
   return _fingerprintParams;
 }
 
-let _wav2vecParams: Wav2VecParams = { ...DEFAULT_WAV2VEC_PARAMS };
+// ── Coach S params ──
 
-export function setSoundWav2VecParams(params: Wav2VecParams | undefined) {
-  _wav2vecParams = params ? { ...params } : { ...DEFAULT_WAV2VEC_PARAMS };
+let _coachSParams: CoachSParams = { ...DEFAULT_COACH_S_PARAMS };
+
+export function setSoundCoachSParams(params: Partial<CoachSParams> | undefined) {
+  _coachSParams = params
+    ? {
+        ..._coachSParams,
+        ...params,
+        llm: { ..._coachSParams.llm, ...(params.llm ?? {}) },
+        scoring: { ..._coachSParams.scoring, ...(params.scoring ?? {}) },
+      }
+    : { ...DEFAULT_COACH_S_PARAMS };
 }
 
-export function getSoundWav2VecParams(): Wav2VecParams {
-  return _wav2vecParams;
+export function getSoundCoachSParams(): CoachSParams {
+  return _coachSParams;
 }
+
+// ── Quality penalty toggle ──
 
 let _applyQualityPenalty = true;
 
@@ -79,12 +86,10 @@ export function getSoundApplyQualityPenalty(): boolean {
 
 /**
  * Bridge: convert old SoundFrame[] to V2 frames for pattern extraction.
- * This allows the module to work with both legacy and new frame formats.
  */
 function bridgeToV2Pattern(frames: SoundFrame[]): SoundPattern & { _v2?: SoundPatternV2 } {
-  // Convert old SoundFrame to V2-compatible frame data
-  const v2Frames = frames.map((f, i) => ({
-    t: f.timestamp / 1000, // ms -> seconds
+  const v2Frames = frames.map((f) => ({
+    t: f.timestamp / 1000,
     pitchHz: f.pitch > 0 ? f.pitch : null,
     pitchConf: f.pitch > 60 && f.pitch < 500 ? 0.7 : 0.1,
     energyDb: f.volume > 0 ? 20 * Math.log10(f.volume / 100 + 1e-8) : -60,
@@ -101,7 +106,6 @@ function bridgeToV2Pattern(frames: SoundFrame[]): SoundPattern & { _v2?: SoundPa
 
   const v2Pattern = extractSoundPatternV2(v2Frames, duration);
 
-  // Also build legacy fields for backward compatibility
   const pitchContour = frames.map(f => f.pitch);
   const volumeContour = frames.map(f => f.volume);
   const avgPitch = pitchContour.filter(p => p > 0).reduce((a, b) => a + b, 0) /
@@ -155,17 +159,6 @@ export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
         return Math.min(1, frame.volume / 100);
       },
     },
-    {
-      id: 'pitch-only',
-      name: 'Pitch Tracking Only',
-      description: 'Focus on intonation and melody patterns',
-      isDefault: false,
-      enabled: false,
-      requires: ['microphone'],
-      extract: (frames: SoundFrame[]): SoundPattern => {
-        return bridgeToV2Pattern(frames);
-      },
-    },
   ],
 
   charts: [
@@ -177,10 +170,31 @@ export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
 
   comparers: [
     {
+      id: 'style-coach-s',
+      name: 'Vocal Coach S (Measure S)',
+      description: 'Chấm điểm nhịp (tempo) + năng lượng giọng (energy) theo rubric VOCAL_SCORING_SPEC. Grade S/A/B/C/D/F. Dùng LLM nếu có, fallback deterministic.',
+      isDefault: true,
+      enabled: true,
+      compare: async (ref: SoundPattern, learner: SoundPattern) => {
+        const refPattern = coerceToV2(ref as any);
+        const learnerPattern = coerceToV2(learner as any);
+
+        const result = await compareCoachSStyle(refPattern, learnerPattern, _coachSParams, {
+          applyQualityPenalty: _applyQualityPenalty,
+        });
+        return {
+          score: result.score,
+          breakdown: result.breakdown,
+          feedback: result.feedback,
+          debug: result.debug,
+        };
+      },
+    },
+    {
       id: 'style-delivery',
       name: 'Delivery Pattern',
-      description: 'Compare delivery style: elongation, emphasis, expressiveness — detects "kéo dài âm" patterns across languages',
-      isDefault: true,
+      description: 'So sánh phong cách nói: kéo dài âm, nhấn mạnh, biểu cảm, nhịp điệu — phát hiện pattern "kéo dài âm" cross-language',
+      isDefault: false,
       enabled: true,
       compare: (ref: SoundPattern, learner: SoundPattern) => {
         const refPattern = coerceToV2(ref as any);
@@ -200,7 +214,7 @@ export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
     {
       id: 'style-fingerprint',
       name: 'Style Fingerprint',
-      description: 'Compare speaking CHARACTER (expressiveness, energy, rhythm, voice color) — cross-language',
+      description: 'So sánh "tính cách" giọng nói: độ biểu cảm, năng lượng, nhịp điệu, màu sắc giọng — cross-language',
       isDefault: false,
       enabled: true,
       compare: (ref: SoundPattern, learner: SoundPattern) => {
@@ -208,51 +222,6 @@ export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
         const learnerPattern = coerceToV2(learner as any);
 
         const result = compareStyleFingerprints(refPattern, learnerPattern, _fingerprintParams, {
-          applyQualityPenalty: _applyQualityPenalty,
-        });
-        return {
-          score: result.score,
-          breakdown: result.breakdown,
-          feedback: result.feedback,
-          debug: result.debug,
-        };
-      },
-    },
-    {
-      id: 'style-wav2vec',
-      name: 'Wav2Vec Hybrid (Experimental)',
-      description: 'Hybrid style scoring: embedding similarity + delivery + fingerprint. Uses wav2vec embedding if attached, else runtime-safe proxy embedding.',
-      isDefault: false,
-      enabled: true,
-      compare: (ref: SoundPattern, learner: SoundPattern) => {
-        const refPattern = coerceToV2(ref as any);
-        const learnerPattern = coerceToV2(learner as any);
-
-        const result = compareWav2VecStyle(refPattern, learnerPattern, _wav2vecParams, {
-          applyQualityPenalty: _applyQualityPenalty,
-          deliveryParams: _deliveryParams,
-          fingerprintParams: _fingerprintParams,
-        });
-        return {
-          score: result.score,
-          breakdown: result.breakdown,
-          feedback: result.feedback,
-          debug: result.debug,
-        };
-      },
-    },
-    {
-      id: 'style-dtw',
-      name: 'Contour DTW (Legacy)',
-      description: 'DTW-based prosodic contour comparison (intonation, rhythm, energy, timbre)',
-      isDefault: false,
-      enabled: true,
-      compare: (ref: SoundPattern, learner: SoundPattern) => {
-        const refPattern = coerceToV2(ref as any);
-        const learnerPattern = coerceToV2(learner as any);
-        const weights = _dynamicWeights;
-
-        const result = compareSoundStyle(refPattern, learnerPattern, weights, {
           applyQualityPenalty: _applyQualityPenalty,
         });
         return {
@@ -271,7 +240,6 @@ export const soundModule: MSEModule<SoundFrame, SoundPattern> = {
 function buildFallbackV2(pattern: SoundPattern): SoundPatternV2 {
   const CONTOUR_LENGTH = 180;
 
-  // Convert pitch to semitones
   const pitches = pattern.pitchContour.filter(p => p > 0);
   const medianPitch = pitches.length > 0
     ? pitches.sort((a, b) => a - b)[Math.floor(pitches.length / 2)]
@@ -284,20 +252,19 @@ function buildFallbackV2(pattern: SoundPattern): SoundPatternV2 {
   const pitchContourNorm = resampleArr(pitchSemitones, CONTOUR_LENGTH);
   const pitchSlope = pitchContourNorm.map((v, i) => i > 0 ? v - pitchContourNorm[i - 1] : 0);
 
-  // Energy from volume
   const energyRaw = pattern.volumeContour.map(v => v > 0 ? 20 * Math.log10(v / 100 + 1e-8) : -60);
   const mean = energyRaw.reduce((a, b) => a + b, 0) / (energyRaw.length || 1);
   const std = Math.sqrt(energyRaw.reduce((s, v) => s + (v - mean) ** 2, 0) / (energyRaw.length || 1));
   const zNorm = std > 0.001 ? energyRaw.map(v => (v - mean) / std) : energyRaw.map(() => 0);
   const energyContourNorm = resampleArr(zNorm, CONTOUR_LENGTH);
 
-  const duration = pattern.pitchContour.length * 0.05; // ~50ms per frame
+  const duration = pattern.pitchContour.length * 0.05;
 
   return {
     duration,
     pitchContourNorm,
     pitchSlope,
-    pitchContourVoiced: pitchContourNorm, // legacy fallback: use same as norm
+    pitchContourVoiced: pitchContourNorm,
     pitchSlopeVoiced: pitchSlope,
     energyContourNorm,
     spectralCentroidContour: new Array(CONTOUR_LENGTH).fill(0),

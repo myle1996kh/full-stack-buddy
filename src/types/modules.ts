@@ -37,7 +37,7 @@ export interface ComparerPlugin<TPattern = any> {
   description: string;
   isDefault: boolean;
   enabled: boolean;
-  compare: (reference: TPattern, learner: TPattern) => ComparisonResult;
+  compare: (reference: TPattern, learner: TPattern) => ComparisonResult | Promise<ComparisonResult>;
 }
 
 export interface ComparisonResult {

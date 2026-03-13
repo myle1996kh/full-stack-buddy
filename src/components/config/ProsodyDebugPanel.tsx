@@ -8,7 +8,7 @@ interface ProsodyDebugPanelProps {
   results: Array<{
     fileName: string;
     score: number;
-    debug?: Record<string, number>;
+    debug?: Record<string, any>;
   }>;
 }
 
@@ -28,6 +28,100 @@ const SECTIONS: { title: string; keys: string[]; labels: Record<string, string> 
       discriminationFactor: 'Discrimination Factor',
       discFactor: 'Discrimination Factor',
       qualityFactor: 'Quality Factor',
+    },
+  },
+  {
+    title: '🎤 Vocal Coach V2',
+    keys: [
+      'tempoScore', 'energyScore', 'overallScore', 'baseScore',
+      'bpmDiffPct', 'energyDiffPct',
+      'refTempoBpm', 'usrTempoBpm',
+      'refEnergyProxy', 'usrEnergyProxy',
+      'refVoicedRatio', 'usrVoicedRatio',
+      'refSpeechRate', 'usrSpeechRate',
+      'refRegularity', 'usrRegularity',
+      'ruleCode', 'rule_energyCap', 'rule_energyFloor',
+      'llmUsed', 'llmConfidence',
+    ],
+    labels: {
+      tempoScore: 'Tempo Score',
+      energyScore: 'Energy Score',
+      overallScore: 'Overall Score (pre-quality)',
+      baseScore: 'Base Score',
+      bpmDiffPct: 'Tempo Diff %',
+      energyDiffPct: 'Energy Diff %',
+      refTempoBpm: 'Ref Tempo (BPM)',
+      usrTempoBpm: 'Usr Tempo (BPM)',
+      refEnergyProxy: 'Ref Energy Proxy',
+      usrEnergyProxy: 'Usr Energy Proxy',
+      refVoicedRatio: 'Ref Voiced Ratio',
+      usrVoicedRatio: 'Usr Voiced Ratio',
+      refSpeechRate: 'Ref Speech Rate',
+      usrSpeechRate: 'Usr Speech Rate',
+      refRegularity: 'Ref Regularity',
+      usrRegularity: 'Usr Regularity',
+      ruleCode: 'Rule Code (0 avg / 1 cap / 2 floor)',
+      rule_energyCap: 'Rule energy_cap',
+      rule_energyFloor: 'Rule energy_floor',
+      llmUsed: 'LLM Used (1=yes)',
+      llmConfidence: 'LLM Confidence',
+    },
+  },
+  {
+    title: '🏆 Vocal Coach S (Measure S)',
+    keys: [
+      'tempoScore', 'energyScore', 'overallScore', 'baseScore', 'grade',
+      'bpmDiffPct', 'durationDiffPct', 'energyDiffPct', 'energyDirection',
+      'refTempoBpm', 'usrTempoBpm', 'refAvgRms', 'usrAvgRms', 'refMaxRms', 'usrMaxRms',
+      'refDuration', 'usrDuration', 'refNSegments', 'usrNSegments',
+      'refMeasureSFeatures', 'usrMeasureSFeatures',
+      'refMeasureSBeatConfidence', 'usrMeasureSBeatConfidence',
+      'refMeasureSOnsetCount', 'usrMeasureSOnsetCount',
+      'tempoGateEnabled', 'tempoGateThreshold', 'tempoGateCapMin', 'tempoGateCapMax', 'tempoGateCapApplied',
+      'energyCapThreshold', 'energyCapMultiplier', 'energyFloorRatio', 'energyFloorMultiplier',
+      'ruleCode', 'rule_energyCap', 'rule_energyFloor', 'rule_tempoGateCap', 'rule_floorBlockedByTempoGate', 'llmUsed'
+    ],
+    labels: {
+      tempoScore: 'Tempo Score',
+      energyScore: 'Energy Score',
+      overallScore: 'Overall Score (pre-quality)',
+      baseScore: 'Base Score',
+      grade: 'Grade',
+      bpmDiffPct: 'Tempo Diff %',
+      durationDiffPct: 'Duration Diff %',
+      energyDiffPct: 'Energy Diff %',
+      energyDirection: 'Energy Direction (1=louder / 0=softer)',
+      refTempoBpm: 'Ref Tempo (BPM)',
+      usrTempoBpm: 'Usr Tempo (BPM)',
+      refAvgRms: 'Ref Avg RMS',
+      usrAvgRms: 'Usr Avg RMS',
+      refMaxRms: 'Ref Max RMS',
+      usrMaxRms: 'Usr Max RMS',
+      refDuration: 'Ref Duration (s)',
+      usrDuration: 'Usr Duration (s)',
+      refNSegments: 'Ref Segment Count',
+      usrNSegments: 'Usr Segment Count',
+      refMeasureSFeatures: 'Ref Uses True Measure S Features',
+      usrMeasureSFeatures: 'Usr Uses True Measure S Features',
+      refMeasureSBeatConfidence: 'Ref Beat Confidence',
+      usrMeasureSBeatConfidence: 'Usr Beat Confidence',
+      refMeasureSOnsetCount: 'Ref Onset Count',
+      usrMeasureSOnsetCount: 'Usr Onset Count',
+      tempoGateEnabled: 'Tempo Gate Enabled',
+      tempoGateThreshold: 'Tempo Gate Threshold',
+      tempoGateCapMin: 'Tempo Gate Cap Min',
+      tempoGateCapMax: 'Tempo Gate Cap Max',
+      tempoGateCapApplied: 'Tempo Gate Cap Applied',
+      energyCapThreshold: 'Energy Cap Threshold',
+      energyCapMultiplier: 'Energy Cap Multiplier',
+      energyFloorRatio: 'Energy Floor Ratio',
+      energyFloorMultiplier: 'Energy Floor Multiplier',
+      ruleCode: 'Rule Code (0 avg / 1 cap / 2 floor / 3 tempo_gate_cap)',
+      rule_energyCap: 'Rule energy_cap',
+      rule_energyFloor: 'Rule energy_floor',
+      rule_tempoGateCap: 'Rule tempo_gate_cap',
+      rule_floorBlockedByTempoGate: 'Rule floor blocked by tempo gate',
+      llmUsed: 'LLM Used (1=yes)',
     },
   },
   // ── Style Fingerprint sections ──
@@ -215,13 +309,19 @@ const SECTIONS: { title: string; keys: string[]; labels: Record<string, string> 
   },
 ];
 
-function colorForValue(val: number, isRaw = false): string {
-  // For similarity scores (0..1), color-code
-  if (isRaw) return 'text-muted-foreground';
+function colorForValue(val: unknown, isRaw = false): string {
+  if (isRaw || typeof val !== 'number' || !Number.isFinite(val)) return 'text-muted-foreground';
   if (val >= 0.8) return 'text-green-400';
   if (val >= 0.5) return 'text-yellow-400';
   if (val >= 0.3) return 'text-orange-400';
   return 'text-red-400';
+}
+
+function formatDebugValue(val: unknown): string {
+  if (typeof val === 'number' && Number.isFinite(val)) return val.toFixed(3);
+  if (typeof val === 'string') return val;
+  if (typeof val === 'boolean') return val ? 'true' : 'false';
+  return String(val);
 }
 
 const RAW_KEYS = new Set([
@@ -229,6 +329,24 @@ const RAW_KEYS = new Set([
   'ref_pitchRange', 'usr_pitchRange', 'ref_pitchVar', 'usr_pitchVar',
   'ref_energyRange', 'usr_energyRange', 'ref_pauseRate', 'usr_pauseRate',
   'refEmbeddingSource', 'usrEmbeddingSource',
+  // Coach V2 raw keys
+  'tempoScore', 'energyScore', 'overallScore', 'baseScore',
+  'bpmDiffPct', 'energyDiffPct',
+  'refTempoBpm', 'usrTempoBpm',
+  'refEnergyProxy', 'usrEnergyProxy',
+  'refVoicedRatio', 'usrVoicedRatio',
+  'refSpeechRate', 'usrSpeechRate',
+  'refRegularity', 'usrRegularity',
+  'ruleCode', 'rule_energyCap', 'rule_energyFloor',
+  'llmUsed', 'llmConfidence',
+  'grade', 'durationDiffPct', 'energyDirection',
+  'refAvgRms', 'usrAvgRms', 'refMaxRms', 'usrMaxRms',
+  'refDuration', 'usrDuration', 'refNSegments', 'usrNSegments',
+  'refMeasureSFeatures', 'usrMeasureSFeatures',
+  'refMeasureSBeatConfidence', 'usrMeasureSBeatConfidence',
+  'refMeasureSOnsetCount', 'usrMeasureSOnsetCount',
+  'tempoGateEnabled', 'tempoGateThreshold', 'tempoGateCapMin', 'tempoGateCapMax', 'tempoGateCapApplied',
+  'energyCapThreshold', 'energyCapMultiplier', 'energyFloorRatio', 'energyFloorMultiplier', 'rule_tempoGateCap', 'rule_floorBlockedByTempoGate',
   // Delivery raw keys
   'ref_segments', 'usr_segments', 'ref_durationCV', 'usr_durationCV',
   'ref_maxMedianRatio', 'usr_maxMedianRatio', 'ref_energyCV', 'usr_energyCV',
@@ -278,7 +396,7 @@ export default function ProsodyDebugPanel({ results }: ProsodyDebugPanelProps) {
                             <div key={key} className="flex items-center justify-between text-[10px]">
                               <span className="text-muted-foreground">{section.labels[key] || key}</span>
                               <span className={`font-mono font-semibold ${colorForValue(val, isRaw)}`}>
-                                {val.toFixed(3)}
+                                {formatDebugValue(val)}
                               </span>
                             </div>
                           );

@@ -71,3 +71,27 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+
+## Sound Coach V2 (Tempo+Energy + optional 9router LLM)
+
+To enable remote LLM pass for comparer `style-coach-v2`, create a local env file (recommended: `.env.local`):
+
+```bash
+# Preferred (legacy-compatible)
+VITE_NINEROUTER_BASE_URL=http://35.185.132.75/v1
+VITE_NINEROUTER_MODEL=combo:mse
+VITE_NINEROUTER_COMBO=mse
+VITE_NINEROUTER_API_KEY=YOUR_KEY_HERE
+VITE_NINEROUTER_TIMEOUT_MS=12000
+
+# Optional alias names (also supported now)
+# VITE_ROUTER9_BASE_URL=http://35.185.132.75/v1
+# VITE_ROUTER9_MODEL=combo:mse
+# VITE_ROUTER9_COMBO=mse
+# VITE_ROUTER9_API_KEY=YOUR_KEY_HERE
+# VITE_ROUTER9_TIMEOUT_MS=12000
+
+VITE_SOUND_COACH_LLM_ENABLED=true
+```
+
+If no API key is provided (or request fails), the scorer auto-falls back to deterministic local coach formula.

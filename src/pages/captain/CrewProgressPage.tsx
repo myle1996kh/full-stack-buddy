@@ -15,6 +15,20 @@ interface SessionScores {
   eyes?: number;
 }
 
+function toFiniteNumber(value: unknown): number | undefined {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function getModuleScore(value: unknown): number | undefined {
+  const direct = toFiniteNumber(value);
+  if (direct !== undefined) return direct;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return toFiniteNumber((value as Record<string, unknown>).score);
+  }
+  return undefined;
+}
+
 interface CrewSession {
   id: string;
   crew_id: string;
@@ -26,7 +40,12 @@ interface CrewSession {
 
 function parseScores(s: Json | null): SessionScores {
   if (!s || typeof s !== 'object' || Array.isArray(s)) return {};
-  return s as unknown as SessionScores;
+  const raw = s as Record<string, unknown>;
+  return {
+    motion: getModuleScore(raw.motion),
+    sound: getModuleScore(raw.sound),
+    eyes: getModuleScore(raw.eyes),
+  };
 }
 
 const cardVariants = {
@@ -70,15 +89,19 @@ export default function CrewProgressPage() {
 
   const mseAvg = useMemo(() => {
     if (sessions.length === 0) return { motion: 0, sound: 0, eyes: 0 };
-    let m = 0, s = 0, e = 0, c = 0;
+    let m = 0, s = 0, e = 0;
+    let mCount = 0, sCount = 0, eCount = 0;
     sessions.forEach(sess => {
       const sc = parseScores(sess.scores);
-      if (sc.motion != null) { m += sc.motion; c++; }
-      if (sc.sound != null) { s += sc.sound; }
-      if (sc.eyes != null) { e += sc.eyes; }
+      if (sc.motion != null) { m += sc.motion; mCount++; }
+      if (sc.sound != null) { s += sc.sound; sCount++; }
+      if (sc.eyes != null) { e += sc.eyes; eCount++; }
     });
-    const n = c || 1;
-    return { motion: Math.round(m / n), sound: Math.round(s / n), eyes: Math.round(e / n) };
+    return {
+      motion: Math.round(m / Math.max(1, mCount)),
+      sound: Math.round(s / Math.max(1, sCount)),
+      eyes: Math.round(e / Math.max(1, eCount)),
+    };
   }, [sessions]);
 
   const trendData = useMemo(() => {

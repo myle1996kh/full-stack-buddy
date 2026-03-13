@@ -3,32 +3,46 @@ import { useAuthStore } from '@/stores/authStore';
 import CaptainNav from './CaptainNav';
 import CrewNav from './CrewNav';
 import AdminNav from './AdminNav';
-import { Zap } from 'lucide-react';
+import SidebarShell from './SidebarShell';
 
 export default function AppLayout() {
   const role = useAuthStore((s) => s.role);
 
+  const roleLabel = role === 'admin' ? 'Admin' : role === 'captain' ? 'Captain' : 'Crew';
+  const nav = role === 'admin'
+    ? <AdminNav />
+    : role === 'captain'
+      ? <CaptainNav />
+      : <CrewNav />;
+
   return (
-    <div className="min-h-screen bg-background pb-20">
-      <header className="sticky top-0 z-40 glass border-b border-border/50">
-        <div className="flex items-center justify-between h-14 px-4 max-w-4xl mx-auto">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-md bg-primary/20 flex items-center justify-center">
-              <Zap className="w-4 h-4 text-primary" />
+    <div className="min-h-screen bg-background">
+      <header className="sticky top-0 z-40 border-b border-white/60 bg-background/85 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4">
+          <div className="flex items-center gap-3">
+            <SidebarShell roleLabel={roleLabel} mobileOnly>{nav}</SidebarShell>
+            <img
+              src="/chunks-logo.png"
+              alt="Chunks logo"
+              className="h-10 w-auto object-contain"
+            />
+            <div>
+              <span className="block text-sm font-bold leading-none">MSE-Conscious</span>
+              <span className="text-[11px] text-muted-foreground">Powered by CHUNKS</span>
             </div>
-            <span className="font-bold text-sm">MSE-Conscious</span>
           </div>
-          <span className="text-xs text-muted-foreground capitalize px-2 py-1 rounded bg-muted">
+          <span className="rounded-full border border-primary/15 bg-primary/10 px-3 py-1.5 text-xs capitalize text-primary">
             {role === 'admin' ? '🛡️ Admin' : role === 'captain' ? '🧑‍✈️ Captain' : '🚣 Crew'}
           </span>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-6">
-        <Outlet />
-      </main>
-
-      {role === 'admin' ? <AdminNav /> : role === 'captain' ? <CaptainNav /> : <CrewNav />}
+      <div className="mx-auto flex max-w-7xl gap-6 px-4 py-8">
+        <SidebarShell roleLabel={roleLabel}>{nav}</SidebarShell>
+        <main className="min-w-0 flex-1">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

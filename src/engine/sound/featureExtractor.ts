@@ -129,7 +129,7 @@ function detectPitchMPMLite(
   const refined = parabolicInterpolation(nsdf, bestLag, minLag, maxLag);
 
   return {
-    pitch: Math.round(sampleRate / refined),
+    pitch: sampleRate / refined,
     confidence: Math.min(1, bestVal),
   };
 }

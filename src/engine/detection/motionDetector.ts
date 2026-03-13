@@ -28,8 +28,8 @@ export class MotionDetector {
   private canvas: OffscreenCanvas;
   private ctx: OffscreenCanvasRenderingContext2D;
   private prevFrame: ImageData | null = null;
-  private readonly WIDTH = 160;
-  private readonly HEIGHT = 120;
+  private readonly WIDTH = 120;
+  private readonly HEIGHT = 200;
 
   constructor() {
     this.canvas = new OffscreenCanvas(this.WIDTH, this.HEIGHT);
@@ -37,7 +37,7 @@ export class MotionDetector {
   }
 
   processVideoFrame(video: HTMLVideoElement): MotionFrame {
-    this.ctx.drawImage(video, 0, 0, this.WIDTH, this.HEIGHT);
+    this.drawCover(video);
     const currentFrame = this.ctx.getImageData(0, 0, this.WIDTH, this.HEIGHT);
 
     if (!this.prevFrame) {
@@ -66,6 +66,30 @@ export class MotionDetector {
       centroidY,
       pose: classifyPose(motionLevel, regionMotion),
     };
+  }
+
+  private drawCover(video: HTMLVideoElement): void {
+    const srcW = video.videoWidth || this.WIDTH;
+    const srcH = video.videoHeight || this.HEIGHT;
+    const srcAspect = srcW / srcH;
+    const dstAspect = this.WIDTH / this.HEIGHT;
+
+    let cropW = srcW;
+    let cropH = srcH;
+    let cropX = 0;
+    let cropY = 0;
+
+    if (srcAspect > dstAspect) {
+      // Source too wide → crop left/right
+      cropW = srcH * dstAspect;
+      cropX = (srcW - cropW) / 2;
+    } else {
+      // Source too tall → crop top/bottom
+      cropH = srcW / dstAspect;
+      cropY = (srcH - cropH) / 2;
+    }
+
+    this.ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, this.WIDTH, this.HEIGHT);
   }
 
   private computeFrameDiff(prev: ImageData, curr: ImageData) {

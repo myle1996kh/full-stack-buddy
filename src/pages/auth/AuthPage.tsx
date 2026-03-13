@@ -46,18 +46,21 @@ export default function AuthPage() {
     <div className="min-h-screen flex items-center justify-center p-4 bg-background">
       <div className="w-full max-w-md animate-slide-up">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
+          <div className="inline-flex items-center gap-3 mb-4 rounded-2xl border border-white/70 bg-white/70 px-4 py-3 shadow-sm backdrop-blur-sm">
+            <div className="w-10 h-10 rounded-2xl bg-primary/15 flex items-center justify-center">
               <Zap className="w-6 h-6 text-primary" />
             </div>
-            <h1 className="text-2xl font-bold">MSE-Conscious</h1>
+            <div className="text-left">
+              <h1 className="text-xl font-bold leading-none">MSE-Conscious</h1>
+              <p className="text-xs text-muted-foreground mt-1">Mirror. Compare. Grow.</p>
+            </div>
           </div>
-          <p className="text-muted-foreground text-sm">Mirror. Compare. Grow.</p>
+          <p className="text-muted-foreground text-sm">A calmer, brighter practice space for conscious learning.</p>
         </div>
 
-        <Card className="glass">
+        <Card className="glass shadow-[0_24px_60px_rgba(255,59,48,0.12)]">
           <CardHeader className="pb-4">
-            <CardTitle className="text-lg">Welcome</CardTitle>
+            <CardTitle className="text-xl">Welcome</CardTitle>
             <CardDescription>Sign in or create an account to begin</CardDescription>
           </CardHeader>
           <CardContent>

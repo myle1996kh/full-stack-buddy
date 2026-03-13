@@ -9,29 +9,31 @@ const navItems = [
   { path: '/settings', icon: Settings, label: 'Settings' },
 ];
 
-export default function CaptainNav() {
+interface CaptainNavProps {
+  className?: string;
+}
+
+export default function CaptainNav({ className }: CaptainNavProps) {
   const { pathname } = useLocation();
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 glass border-t border-border/50">
-      <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
-        {navItems.map((item) => {
-          const active = pathname.startsWith(item.path);
-          return (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={cn(
-                'flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-colors text-xs',
-                active ? 'text-mse-consciousness' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <item.icon className="w-5 h-5" />
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
-      </div>
+    <nav className={cn('flex flex-col gap-2', className)}>
+      {navItems.map((item) => {
+        const active = pathname.startsWith(item.path);
+        return (
+          <Link
+            key={item.path}
+            to={item.path}
+            className={cn(
+              'flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition-colors',
+              active ? 'bg-primary text-primary-foreground shadow-[0_12px_28px_rgba(255,59,48,0.18)]' : 'text-muted-foreground hover:bg-white/70 hover:text-foreground'
+            )}
+          >
+            <item.icon className="h-4 w-4" />
+            <span>{item.label}</span>
+          </Link>
+        );
+      })}
     </nav>
   );
 }

@@ -1,4 +1,100 @@
+/**
+ * Motion MSE Module — wired to V2 pipeline.
+ * extract() produces MotionPatternV2-compatible output,
+ * compare() uses joint-angle / relative / invariant strategies.
+ */
+
 import type { MSEModule, MotionFrame, MotionPattern } from '@/types/modules';
+import { extractMotionFramesV2 } from '@/engine/motion/featureExtractor';
+import { extractMotionPatternV2 } from '@/engine/motion/patternExtractor';
+import { comparePoseAngles, setPoseAnglesParams } from '@/engine/motion/poseAnglesComparer';
+import { comparePoseRelative, setPoseRelativeParams } from '@/engine/motion/poseRelativeComparer';
+import { comparePoseInvariant, setPoseInvariantParams } from '@/engine/motion/poseInvariantComparer';
+import type { PoseAnglesParams } from '@/engine/motion/poseAnglesComparer';
+import type { PoseRelativeParams } from '@/engine/motion/poseRelativeComparer';
+import type { PoseInvariantParams } from '@/engine/motion/poseInvariantComparer';
+import type { MotionPatternV2 } from '@/engine/motion/types';
+
+// ── Dynamic params (set from UI before compare) ──
+
+let _anglesParams: PoseAnglesParams | undefined;
+let _relativeParams: PoseRelativeParams | undefined;
+let _invariantParams: PoseInvariantParams | undefined;
+let _applyQualityPenalty = true;
+
+export function setMotionAnglesParams(params: PoseAnglesParams | undefined) {
+  _anglesParams = params;
+  if (params) setPoseAnglesParams(params);
+}
+export function getMotionAnglesParams() { return _anglesParams; }
+
+export function setMotionRelativeParams(params: PoseRelativeParams | undefined) {
+  _relativeParams = params;
+  if (params) setPoseRelativeParams(params);
+}
+
+export function setMotionInvariantParams(params: PoseInvariantParams | undefined) {
+  _invariantParams = params;
+  if (params) setPoseInvariantParams(params);
+}
+
+export function setMotionApplyQualityPenalty(enabled: boolean) {
+  _applyQualityPenalty = enabled;
+}
+export function getMotionApplyQualityPenalty() { return _applyQualityPenalty; }
+
+// ── Bridge: convert old MotionFrame[] to V2 pattern ──
+
+function isMotionPatternV2(pattern: any): pattern is MotionPatternV2 {
+  return !!pattern
+    && typeof pattern.duration === 'number'
+    && typeof pattern.angleContours === 'object'
+    && Array.isArray(pattern.velocityContour);
+}
+
+function bridgeToV2Pattern(frames: MotionFrame[]): MotionPattern & { _v2?: MotionPatternV2 } {
+  const landmarkFrames = frames.map((f) => ({
+    t: f.timestamp / 1000,
+    landmarks: f.landmarks ?? [],
+  }));
+
+  const v2Frames = extractMotionFramesV2(landmarkFrames);
+  const duration = frames.length > 0
+    ? (frames[frames.length - 1].timestamp - frames[0].timestamp) / 1000
+    : 0;
+  const v2Pattern = extractMotionPatternV2(v2Frames, duration);
+
+  const segments = v2Pattern.segments.map(s => ({
+    type: s.type,
+    duration: s.duration,
+    landmarks: [] as number[][],
+  }));
+
+  return {
+    segments,
+    avgVelocity: v2Pattern.avgVelocity,
+    gestureSequence: v2Pattern.gestureSequence,
+    _v2: v2Pattern,
+  } as MotionPattern & { _v2?: MotionPatternV2 };
+}
+
+function coerceToV2(pattern: any): MotionPatternV2 {
+  if (pattern?._v2) return pattern._v2;
+  if (isMotionPatternV2(pattern)) return pattern;
+  return {
+    duration: 0,
+    angleContours: {},
+    velocityContour: [],
+    segments: [],
+    avgVelocity: pattern?.avgVelocity ?? 0,
+    poseDistribution: { still: 1, subtle: 0, gesture: 0, movement: 0, active: 0 },
+    gestureSequence: pattern?.gestureSequence ?? [],
+    limbRatios: [],
+    quality: { avgConfidence: 0, missingFrameRatio: 1 },
+  };
+}
+
+// ── Module definition ──
 
 export const motionModule: MSEModule<MotionFrame, MotionPattern> = {
   id: 'motion',
@@ -15,9 +111,7 @@ export const motionModule: MSEModule<MotionFrame, MotionPattern> = {
       enabled: true,
       requires: ['camera', 'pose'],
       extract: (frames: MotionFrame[]): MotionPattern => {
-        const segments = analyzeMotionSegments(frames);
-        const avgVelocity = calculateAvgVelocity(frames);
-        return { segments, avgVelocity, gestureSequence: segments.map(s => s.type) };
+        return bridgeToV2Pattern(frames);
       },
       processFrame: (frame: MotionFrame): number => {
         if (!frame.landmarks || frame.landmarks.length === 0) return 0;
@@ -32,10 +126,7 @@ export const motionModule: MSEModule<MotionFrame, MotionPattern> = {
       enabled: false,
       requires: ['camera', 'hands'],
       extract: (frames: MotionFrame[]): MotionPattern => {
-        const segments = frames
-          .filter(f => f.handLandmarks && f.handLandmarks.length > 0)
-          .map((f, i) => ({ type: 'hand-gesture', duration: 0.1, landmarks: f.handLandmarks?.[0] || [] }));
-        return { segments, avgVelocity: 0, gestureSequence: segments.map(s => s.type) };
+        return bridgeToV2Pattern(frames);
       },
     },
     {
@@ -48,11 +139,9 @@ export const motionModule: MSEModule<MotionFrame, MotionPattern> = {
       extract: (frames: MotionFrame[]): MotionPattern => {
         const filtered = frames.map(f => ({
           ...f,
-          landmarks: f.landmarks?.slice(0, 23) || [],
+          landmarks: f.landmarks?.slice(0, 23) ?? [],
         }));
-        return analyzeMotionSegments(filtered).length > 0
-          ? { segments: analyzeMotionSegments(filtered), avgVelocity: calculateAvgVelocity(filtered), gestureSequence: [] }
-          : { segments: [], avgVelocity: 0, gestureSequence: [] };
+        return bridgeToV2Pattern(filtered);
       },
     },
   ],
@@ -66,29 +155,64 @@ export const motionModule: MSEModule<MotionFrame, MotionPattern> = {
 
   comparers: [
     {
-      id: 'multi-dtw',
-      name: 'Multi-feature DTW',
-      description: 'Dynamic Time Warping across multiple body features',
+      id: 'pose-angles',
+      name: 'Joint Angles',
+      description: 'Per-joint angle similarity with temporal alignment — configurable weights per body part',
       isDefault: true,
       enabled: true,
       compare: (ref: MotionPattern, learner: MotionPattern) => {
-        // Direction: compare gesture sequences
+        const refV2 = coerceToV2(ref);
+        const learnerV2 = coerceToV2(learner);
+        const result = comparePoseAngles(refV2, learnerV2, _anglesParams, {
+          applyQualityPenalty: _applyQualityPenalty,
+        });
+        return { score: result.score, breakdown: result.breakdown, feedback: result.feedback, debug: result.debug };
+      },
+    },
+    {
+      id: 'pose-relative',
+      name: 'Rotation Invariant',
+      description: 'Torso-relative angles — works when camera angle differs between reference and learner',
+      isDefault: false,
+      enabled: true,
+      compare: (ref: MotionPattern, learner: MotionPattern) => {
+        const refV2 = coerceToV2(ref);
+        const learnerV2 = coerceToV2(learner);
+        const result = comparePoseRelative(refV2, learnerV2, _relativeParams, {
+          applyQualityPenalty: _applyQualityPenalty,
+        });
+        return { score: result.score, breakdown: result.breakdown, feedback: result.feedback };
+      },
+    },
+    {
+      id: 'pose-invariant',
+      name: 'Multi-Feature Invariant',
+      description: 'Limb proportions + angles + topology — most robust, handles scale/rotation/body size differences',
+      isDefault: false,
+      enabled: true,
+      compare: (ref: MotionPattern, learner: MotionPattern) => {
+        const refV2 = coerceToV2(ref);
+        const learnerV2 = coerceToV2(learner);
+        const result = comparePoseInvariant(refV2, learnerV2, _invariantParams, {
+          applyQualityPenalty: _applyQualityPenalty,
+        });
+        return { score: result.score, breakdown: result.breakdown, feedback: result.feedback };
+      },
+    },
+    {
+      id: 'multi-dtw',
+      name: 'Multi-DTW (Legacy)',
+      description: 'Legacy multi-feature DTW comparison',
+      isDefault: false,
+      enabled: true,
+      compare: (ref: MotionPattern, learner: MotionPattern) => {
         const dirScore = compareSequences(ref.gestureSequence, learner.gestureSequence);
-
-        // Velocity: compare average velocity
         const velScore = ref.avgVelocity > 0
           ? Math.max(0, 100 - Math.abs(ref.avgVelocity - learner.avgVelocity) / ref.avgVelocity * 100)
           : learner.avgVelocity === 0 ? 100 : 50;
-
-        // Trajectory: compare segment count and durations
         const trajScore = compareSegments(ref.segments, learner.segments);
-
-        // Gestures: compare gesture type distribution
         const gestScore = compareGestureDistribution(ref.segments, learner.segments);
-
-        // Posture: compare landmark positions in segments
         const postureScore = comparePosture(ref.segments, learner.segments);
-
         const overall = (dirScore + trajScore + velScore + gestScore + postureScore) / 5;
 
         const feedback: string[] = [];
@@ -101,10 +225,8 @@ export const motionModule: MSEModule<MotionFrame, MotionPattern> = {
         return {
           score: Math.round(overall),
           breakdown: {
-            direction: Math.round(dirScore),
-            trajectory: Math.round(trajScore),
-            velocity: Math.round(velScore),
-            gestures: Math.round(gestScore),
+            direction: Math.round(dirScore), trajectory: Math.round(trajScore),
+            velocity: Math.round(velScore), gestures: Math.round(gestScore),
             posture: Math.round(postureScore),
           },
           feedback,
@@ -114,113 +236,47 @@ export const motionModule: MSEModule<MotionFrame, MotionPattern> = {
   ],
 };
 
-// --- Real comparison helpers ---
+// ── Legacy helpers (for multi-dtw) ──
 
 function compareSequences(a: string[], b: string[]): number {
   if (a.length === 0 && b.length === 0) return 100;
   if (a.length === 0 || b.length === 0) return 30;
-  // LCS-based similarity
-  const lcs = longestCommonSubsequence(a, b);
-  return (lcs / Math.max(a.length, b.length)) * 100;
-}
-
-function longestCommonSubsequence(a: string[], b: string[]): number {
   const m = a.length, n = b.length;
   const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
-    }
-  }
-  return dp[m][n];
+  for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++)
+    dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+  return (dp[m][n] / Math.max(m, n)) * 100;
 }
 
 function compareSegments(refSegs: MotionPattern['segments'], learnerSegs: MotionPattern['segments']): number {
   if (refSegs.length === 0 && learnerSegs.length === 0) return 100;
   if (refSegs.length === 0 || learnerSegs.length === 0) return 30;
-
-  // Compare total duration
   const refDur = refSegs.reduce((s, seg) => s + seg.duration, 0);
   const learnerDur = learnerSegs.reduce((s, seg) => s + seg.duration, 0);
   const durScore = refDur > 0 ? Math.max(0, 100 - Math.abs(refDur - learnerDur) / refDur * 100) : 50;
-
-  // Compare segment count similarity
   const countScore = Math.max(0, 100 - Math.abs(refSegs.length - learnerSegs.length) / Math.max(refSegs.length, learnerSegs.length) * 100);
-
   return (durScore + countScore) / 2;
 }
 
 function compareGestureDistribution(refSegs: MotionPattern['segments'], learnerSegs: MotionPattern['segments']): number {
-  const refDist = buildDistribution(refSegs.map(s => s.type));
-  const learnerDist = buildDistribution(learnerSegs.map(s => s.type));
-  return cosineSimilarity(refDist, learnerDist) * 100;
-}
-
-function buildDistribution(items: string[]): Map<string, number> {
-  const dist = new Map<string, number>();
-  items.forEach(item => dist.set(item, (dist.get(item) || 0) + 1));
-  return dist;
-}
-
-function cosineSimilarity(a: Map<string, number>, b: Map<string, number>): number {
+  const build = (items: string[]): Map<string, number> => {
+    const d = new Map<string, number>(); items.forEach(i => d.set(i, (d.get(i) || 0) + 1)); return d;
+  };
+  const a = build(refSegs.map(s => s.type)), b = build(learnerSegs.map(s => s.type));
   const keys = new Set([...a.keys(), ...b.keys()]);
-  let dotProduct = 0, magA = 0, magB = 0;
-  keys.forEach(k => {
-    const va = a.get(k) || 0;
-    const vb = b.get(k) || 0;
-    dotProduct += va * vb;
-    magA += va * va;
-    magB += vb * vb;
-  });
-  if (magA === 0 || magB === 0) return 0;
-  return dotProduct / (Math.sqrt(magA) * Math.sqrt(magB));
+  let dot = 0, mA = 0, mB = 0;
+  keys.forEach(k => { const va = a.get(k) || 0, vb = b.get(k) || 0; dot += va * vb; mA += va * va; mB += vb * vb; });
+  return (mA === 0 || mB === 0) ? 0 : (dot / (Math.sqrt(mA) * Math.sqrt(mB))) * 100;
 }
 
 function comparePosture(refSegs: MotionPattern['segments'], learnerSegs: MotionPattern['segments']): number {
-  // Compare landmark positions from first segment of each
-  const refLm = refSegs[0]?.landmarks;
-  const learnerLm = learnerSegs[0]?.landmarks;
-  if (!refLm || !learnerLm || refLm.length === 0 || learnerLm.length === 0) return 50;
-
-  const len = Math.min(refLm.length, learnerLm.length);
-  let totalDist = 0;
+  const rL = refSegs[0]?.landmarks, lL = learnerSegs[0]?.landmarks;
+  if (!rL || !lL || rL.length === 0 || lL.length === 0) return 50;
+  const len = Math.min(rL.length, lL.length);
+  let total = 0;
   for (let i = 0; i < len; i++) {
-    const r = refLm[i], l = learnerLm[i];
-    if (r && l && r.length >= 2 && l.length >= 2) {
-      const dx = r[0] - l[0], dy = r[1] - l[1];
-      totalDist += Math.sqrt(dx * dx + dy * dy);
-    }
+    const r = rL[i], l = lL[i];
+    if (r && l && r.length >= 2 && l.length >= 2) total += Math.sqrt((r[0] - l[0]) ** 2 + (r[1] - l[1]) ** 2);
   }
-  const avgDist = totalDist / len;
-  // Normalize: 0 dist = 100, 0.5+ dist = 0
-  return Math.max(0, Math.round(100 - avgDist * 200));
-}
-
-// --- Keep existing helpers ---
-
-function analyzeMotionSegments(frames: MotionFrame[]) {
-  if (frames.length < 2) return [];
-  const segmentSize = Math.max(1, Math.floor(frames.length / 5));
-  const segments = [];
-  for (let i = 0; i < frames.length; i += segmentSize) {
-    const chunk = frames.slice(i, i + segmentSize);
-    segments.push({
-      type: 'movement',
-      duration: chunk.length * 0.033,
-      landmarks: chunk[0]?.landmarks || [],
-    });
-  }
-  return segments;
-}
-
-function calculateAvgVelocity(frames: MotionFrame[]): number {
-  if (frames.length < 2) return 0;
-  let totalVelocity = 0;
-  for (let i = 1; i < frames.length; i++) {
-    const dt = frames[i].timestamp - frames[i - 1].timestamp;
-    if (dt > 0 && frames[i].landmarks && frames[i - 1].landmarks) {
-      totalVelocity += 1 / dt;
-    }
-  }
-  return totalVelocity / (frames.length - 1);
+  return Math.max(0, Math.round(100 - (total / len) * 200));
 }
